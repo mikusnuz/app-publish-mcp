@@ -705,6 +705,508 @@ const updateAppInfoLocalization: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
+// 11. Bundle ID Capabilities
+// ═══════════════════════════════════════════
+
+const listBundleIdCapabilities: ToolDef = {
+  name: 'apple_list_bundle_id_capabilities',
+  description: 'List capabilities for a bundle ID',
+  schema: z.object({
+    bundleIdId: z.string().describe('Bundle ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/bundleIds/${args.bundleIdId}/bundleIdCapabilities`);
+  },
+};
+
+const enableCapability: ToolDef = {
+  name: 'apple_enable_capability',
+  description: 'Enable a capability on a bundle ID',
+  schema: z.object({
+    bundleIdId: z.string().describe('Bundle ID'),
+    capabilityType: z.string().describe('Capability type (e.g. ICLOUD, PUSH_NOTIFICATIONS, IN_APP_PURCHASE, GAME_CENTER, WALLET, MAPS, ASSOCIATED_DOMAINS, PERSONAL_VPN, APP_GROUPS, HEALTHKIT, HOMEKIT, WIRELESS_ACCESSORY_CONFIGURATION, APPLE_PAY, DATA_PROTECTION, SIRIKIT, NETWORK_EXTENSIONS, MULTIPATH, HOT_SPOT, NFC_TAG_READING, CLASSKIT, AUTOFILL_CREDENTIAL_PROVIDER, ACCESS_WIFI_INFORMATION, NETWORK_CUSTOM_PROTOCOL, COREMEDIA_HLS_LOW_LATENCY, SYSTEM_EXTENSION_INSTALL, USER_MANAGEMENT, SIGN_IN_WITH_APPLE)'),
+    settings: z.array(z.any()).optional().describe('Capability-specific settings'),
+  }),
+  handler: async (client, args) => {
+    const body: any = {
+      data: {
+        type: 'bundleIdCapabilities',
+        attributes: { capabilityType: args.capabilityType },
+        relationships: {
+          bundleId: { data: { type: 'bundleIds', id: args.bundleIdId } },
+        },
+      },
+    };
+    if (args.settings) {
+      body.data.attributes.settings = args.settings;
+    }
+    return client.request('/bundleIdCapabilities', { method: 'POST', body });
+  },
+};
+
+const disableCapability: ToolDef = {
+  name: 'apple_disable_capability',
+  description: 'Disable a capability on a bundle ID',
+  schema: z.object({
+    capabilityId: z.string().describe('Bundle ID Capability ID'),
+  }),
+  handler: async (client, args) => {
+    await client.request(`/bundleIdCapabilities/${args.capabilityId}`, { method: 'DELETE' });
+    return { success: true };
+  },
+};
+
+// ═══════════════════════════════════════════
+// 12. Certificates
+// ═══════════════════════════════════════════
+
+const listCertificates: ToolDef = {
+  name: 'apple_list_certificates',
+  description: 'List certificates',
+  schema: z.object({
+    certificateType: z.string().optional().describe('Filter by certificate type (e.g. IOS_DEVELOPMENT, IOS_DISTRIBUTION, MAC_APP_DISTRIBUTION, MAC_INSTALLER_DISTRIBUTION, MAC_APP_DEVELOPMENT, DEVELOPER_ID_KEXT, DEVELOPER_ID_APPLICATION, DEVELOPER_ID_INSTALLER)'),
+  }),
+  handler: async (client, args) => {
+    const params: Record<string, string> = {};
+    if (args.certificateType) params['filter[certificateType]'] = args.certificateType;
+    return client.request('/certificates', { params });
+  },
+};
+
+const createCertificate: ToolDef = {
+  name: 'apple_create_certificate',
+  description: 'Create a certificate',
+  schema: z.object({
+    csrContent: z.string().describe('Certificate Signing Request (CSR) content'),
+    certificateType: z.string().describe('Certificate type (e.g. IOS_DEVELOPMENT, IOS_DISTRIBUTION, MAC_APP_DISTRIBUTION, DEVELOPER_ID_APPLICATION)'),
+  }),
+  handler: async (client, args) => {
+    return client.request('/certificates', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'certificates',
+          attributes: {
+            csrContent: args.csrContent,
+            certificateType: args.certificateType,
+          },
+        },
+      },
+    });
+  },
+};
+
+const revokeCertificate: ToolDef = {
+  name: 'apple_revoke_certificate',
+  description: 'Revoke a certificate',
+  schema: z.object({
+    certificateId: z.string().describe('Certificate ID'),
+  }),
+  handler: async (client, args) => {
+    await client.request(`/certificates/${args.certificateId}`, { method: 'DELETE' });
+    return { success: true };
+  },
+};
+
+// ═══════════════════════════════════════════
+// 13. Provisioning Profiles
+// ═══════════════════════════════════════════
+
+const listProfiles: ToolDef = {
+  name: 'apple_list_profiles',
+  description: 'List provisioning profiles',
+  schema: z.object({
+    profileType: z.string().optional().describe('Filter by profile type (e.g. IOS_APP_DEVELOPMENT, IOS_APP_STORE, IOS_APP_ADHOC, IOS_APP_INHOUSE, MAC_APP_DEVELOPMENT, MAC_APP_STORE, MAC_APP_DIRECT, TVOS_APP_DEVELOPMENT, TVOS_APP_STORE, TVOS_APP_ADHOC, TVOS_APP_INHOUSE, MAC_CATALYST_APP_DEVELOPMENT, MAC_CATALYST_APP_STORE, MAC_CATALYST_APP_DIRECT)'),
+    name: z.string().optional().describe('Filter by profile name'),
+  }),
+  handler: async (client, args) => {
+    const params: Record<string, string> = {};
+    if (args.profileType) params['filter[profileType]'] = args.profileType;
+    if (args.name) params['filter[name]'] = args.name;
+    return client.request('/profiles', { params });
+  },
+};
+
+const createProfile: ToolDef = {
+  name: 'apple_create_profile',
+  description: 'Create a provisioning profile',
+  schema: z.object({
+    name: z.string().describe('Profile name'),
+    profileType: z.string().describe('Profile type (e.g. IOS_APP_DEVELOPMENT, IOS_APP_STORE)'),
+    bundleIdId: z.string().describe('Bundle ID'),
+    certificateIds: z.array(z.string()).describe('Array of certificate IDs'),
+    deviceIds: z.array(z.string()).optional().describe('Array of device IDs (required for development profiles)'),
+  }),
+  handler: async (client, args) => {
+    const relationships: any = {
+      bundleId: { data: { type: 'bundleIds', id: args.bundleIdId } },
+      certificates: { data: args.certificateIds.map((id: string) => ({ type: 'certificates', id })) },
+    };
+    if (args.deviceIds && args.deviceIds.length > 0) {
+      relationships.devices = { data: args.deviceIds.map((id: string) => ({ type: 'devices', id })) };
+    }
+    return client.request('/profiles', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'profiles',
+          attributes: {
+            name: args.name,
+            profileType: args.profileType,
+          },
+          relationships,
+        },
+      },
+    });
+  },
+};
+
+const deleteProfile: ToolDef = {
+  name: 'apple_delete_profile',
+  description: 'Delete a provisioning profile',
+  schema: z.object({
+    profileId: z.string().describe('Profile ID'),
+  }),
+  handler: async (client, args) => {
+    await client.request(`/profiles/${args.profileId}`, { method: 'DELETE' });
+    return { success: true };
+  },
+};
+
+// ═══════════════════════════════════════════
+// 14. Devices
+// ═══════════════════════════════════════════
+
+const listDevices: ToolDef = {
+  name: 'apple_list_devices',
+  description: 'List registered devices',
+  schema: z.object({
+    platform: z.enum(['IOS', 'MAC_OS']).optional().describe('Filter by platform'),
+    status: z.enum(['ENABLED', 'DISABLED']).optional().describe('Filter by status'),
+  }),
+  handler: async (client, args) => {
+    const params: Record<string, string> = {};
+    if (args.platform) params['filter[platform]'] = args.platform;
+    if (args.status) params['filter[status]'] = args.status;
+    return client.request('/devices', { params });
+  },
+};
+
+const registerDevice: ToolDef = {
+  name: 'apple_register_device',
+  description: 'Register a new device',
+  schema: z.object({
+    name: z.string().describe('Device name'),
+    platform: z.enum(['IOS', 'MAC_OS']).describe('Platform'),
+    udid: z.string().describe('Device UDID'),
+  }),
+  handler: async (client, args) => {
+    return client.request('/devices', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'devices',
+          attributes: {
+            name: args.name,
+            platform: args.platform,
+            udid: args.udid,
+          },
+        },
+      },
+    });
+  },
+};
+
+const updateDevice: ToolDef = {
+  name: 'apple_update_device',
+  description: 'Update device name or status',
+  schema: z.object({
+    deviceId: z.string().describe('Device ID'),
+    name: z.string().optional().describe('New device name'),
+    status: z.enum(['ENABLED', 'DISABLED']).optional().describe('New status'),
+  }),
+  handler: async (client, args) => {
+    const { deviceId, ...attributes } = args;
+    return client.request(`/devices/${deviceId}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'devices',
+          id: deviceId,
+          attributes,
+        },
+      },
+    });
+  },
+};
+
+// ═══════════════════════════════════════════
+// 15. TestFlight - Beta Groups
+// ═══════════════════════════════════════════
+
+const listBetaGroups: ToolDef = {
+  name: 'apple_list_beta_groups',
+  description: 'List beta groups',
+  schema: z.object({
+    appId: z.string().optional().describe('Filter by app ID'),
+  }),
+  handler: async (client, args) => {
+    const params: Record<string, string> = {};
+    if (args.appId) params['filter[app]'] = args.appId;
+    return client.request('/betaGroups', { params });
+  },
+};
+
+const createBetaGroup: ToolDef = {
+  name: 'apple_create_beta_group',
+  description: 'Create a beta group',
+  schema: z.object({
+    appId: z.string().describe('App ID'),
+    name: z.string().describe('Group name'),
+    isInternalGroup: z.boolean().optional().describe('Is internal group (Apple employees)'),
+    hasAccessToAllBuilds: z.boolean().optional().describe('Auto-enable all new builds'),
+    publicLinkEnabled: z.boolean().optional().describe('Enable public TestFlight link'),
+    publicLinkLimit: z.number().optional().describe('Max testers via public link'),
+    feedbackEnabled: z.boolean().optional().describe('Enable feedback'),
+  }),
+  handler: async (client, args) => {
+    const { appId, ...attributes } = args;
+    return client.request('/betaGroups', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'betaGroups',
+          attributes,
+          relationships: {
+            app: { data: { type: 'apps', id: appId } },
+          },
+        },
+      },
+    });
+  },
+};
+
+const deleteBetaGroup: ToolDef = {
+  name: 'apple_delete_beta_group',
+  description: 'Delete a beta group',
+  schema: z.object({
+    betaGroupId: z.string().describe('Beta Group ID'),
+  }),
+  handler: async (client, args) => {
+    await client.request(`/betaGroups/${args.betaGroupId}`, { method: 'DELETE' });
+    return { success: true };
+  },
+};
+
+const addBetaTestersToGroup: ToolDef = {
+  name: 'apple_add_beta_testers_to_group',
+  description: 'Add beta testers to a group',
+  schema: z.object({
+    betaGroupId: z.string().describe('Beta Group ID'),
+    betaTesterIds: z.array(z.string()).describe('Array of beta tester IDs'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/betaGroups/${args.betaGroupId}/relationships/betaTesters`, {
+      method: 'POST',
+      body: {
+        data: args.betaTesterIds.map((id: string) => ({ type: 'betaTesters', id })),
+      },
+    });
+  },
+};
+
+const removeBetaTestersFromGroup: ToolDef = {
+  name: 'apple_remove_beta_testers_from_group',
+  description: 'Remove beta testers from a group',
+  schema: z.object({
+    betaGroupId: z.string().describe('Beta Group ID'),
+    betaTesterIds: z.array(z.string()).describe('Array of beta tester IDs'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/betaGroups/${args.betaGroupId}/relationships/betaTesters`, {
+      method: 'DELETE',
+      body: {
+        data: args.betaTesterIds.map((id: string) => ({ type: 'betaTesters', id })),
+      },
+    });
+  },
+};
+
+// ═══════════════════════════════════════════
+// 16. TestFlight - Beta Testers
+// ═══════════════════════════════════════════
+
+const listBetaTesters: ToolDef = {
+  name: 'apple_list_beta_testers',
+  description: 'List beta testers',
+  schema: z.object({
+    email: z.string().optional().describe('Filter by email'),
+    appId: z.string().optional().describe('Filter by app ID'),
+  }),
+  handler: async (client, args) => {
+    const params: Record<string, string> = {};
+    if (args.email) params['filter[email]'] = args.email;
+    if (args.appId) params['filter[app]'] = args.appId;
+    return client.request('/betaTesters', { params });
+  },
+};
+
+const inviteBetaTester: ToolDef = {
+  name: 'apple_invite_beta_tester',
+  description: 'Invite a beta tester',
+  schema: z.object({
+    email: z.string().describe('Tester email'),
+    firstName: z.string().optional().describe('First name'),
+    lastName: z.string().optional().describe('Last name'),
+    betaGroupIds: z.array(z.string()).describe('Array of beta group IDs'),
+  }),
+  handler: async (client, args) => {
+    const { betaGroupIds, ...attributes } = args;
+    return client.request('/betaTesters', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'betaTesters',
+          attributes,
+          relationships: {
+            betaGroups: { data: betaGroupIds.map((id: string) => ({ type: 'betaGroups', id })) },
+          },
+        },
+      },
+    });
+  },
+};
+
+const deleteBetaTester: ToolDef = {
+  name: 'apple_delete_beta_tester',
+  description: 'Delete a beta tester',
+  schema: z.object({
+    betaTesterId: z.string().describe('Beta Tester ID'),
+  }),
+  handler: async (client, args) => {
+    await client.request(`/betaTesters/${args.betaTesterId}`, { method: 'DELETE' });
+    return { success: true };
+  },
+};
+
+// ═══════════════════════════════════════════
+// 17. In-App Purchases
+// ═══════════════════════════════════════════
+
+const V2_BASE = 'https://api.appstoreconnect.apple.com/v2';
+
+const listIAP: ToolDef = {
+  name: 'apple_list_iap',
+  description: 'List in-app purchases for an app',
+  schema: z.object({
+    appId: z.string().describe('App ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/apps/${args.appId}/inAppPurchasesV2`);
+  },
+};
+
+const createIAP: ToolDef = {
+  name: 'apple_create_iap',
+  description: 'Create an in-app purchase',
+  schema: z.object({
+    appId: z.string().describe('App ID'),
+    name: z.string().describe('IAP name'),
+    productId: z.string().describe('Product ID (e.g. com.example.app.coins100)'),
+    inAppPurchaseType: z.enum(['CONSUMABLE', 'NON_CONSUMABLE', 'NON_RENEWING_SUBSCRIPTION']).describe('IAP type'),
+  }),
+  handler: async (client, args) => {
+    const { appId, ...attributes } = args;
+    return client.request(`${V2_BASE}/inAppPurchases`, {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'inAppPurchases',
+          attributes,
+          relationships: {
+            app: { data: { type: 'apps', id: appId } },
+          },
+        },
+      },
+    });
+  },
+};
+
+const getIAP: ToolDef = {
+  name: 'apple_get_iap',
+  description: 'Get in-app purchase details',
+  schema: z.object({
+    iapId: z.string().describe('In-App Purchase ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`${V2_BASE}/inAppPurchases/${args.iapId}`);
+  },
+};
+
+const deleteIAP: ToolDef = {
+  name: 'apple_delete_iap',
+  description: 'Delete an in-app purchase',
+  schema: z.object({
+    iapId: z.string().describe('In-App Purchase ID'),
+  }),
+  handler: async (client, args) => {
+    await client.request(`${V2_BASE}/inAppPurchases/${args.iapId}`, { method: 'DELETE' });
+    return { success: true };
+  },
+};
+
+// ═══════════════════════════════════════════
+// 18. Subscription Groups
+// ═══════════════════════════════════════════
+
+const listSubscriptionGroups: ToolDef = {
+  name: 'apple_list_subscription_groups',
+  description: 'List subscription groups for an app',
+  schema: z.object({
+    appId: z.string().describe('App ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/apps/${args.appId}/subscriptionGroups`);
+  },
+};
+
+const createSubscriptionGroup: ToolDef = {
+  name: 'apple_create_subscription_group',
+  description: 'Create a subscription group',
+  schema: z.object({
+    appId: z.string().describe('App ID'),
+    referenceName: z.string().describe('Reference name'),
+  }),
+  handler: async (client, args) => {
+    const { appId, ...attributes } = args;
+    return client.request('/subscriptionGroups', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'subscriptionGroups',
+          attributes,
+          relationships: {
+            app: { data: { type: 'apps', id: appId } },
+          },
+        },
+      },
+    });
+  },
+};
+
+const deleteSubscriptionGroup: ToolDef = {
+  name: 'apple_delete_subscription_group',
+  description: 'Delete a subscription group',
+  schema: z.object({
+    groupId: z.string().describe('Subscription Group ID'),
+  }),
+  handler: async (client, args) => {
+    await client.request(`/subscriptionGroups/${args.groupId}`, { method: 'DELETE' });
+    return { success: true };
+  },
+};
+
+// ═══════════════════════════════════════════
 // Export all tools
 // ═══════════════════════════════════════════
 
@@ -730,4 +1232,21 @@ export const appleTools: ToolDef[] = [
   getAppPricing, setAppPrice, listTerritoryAvailability,
   // Customer Reviews
   listCustomerReviews, respondToReview,
+  // Bundle ID Capabilities
+  listBundleIdCapabilities, enableCapability, disableCapability,
+  // Certificates
+  listCertificates, createCertificate, revokeCertificate,
+  // Provisioning Profiles
+  listProfiles, createProfile, deleteProfile,
+  // Devices
+  listDevices, registerDevice, updateDevice,
+  // TestFlight - Beta Groups
+  listBetaGroups, createBetaGroup, deleteBetaGroup,
+  addBetaTestersToGroup, removeBetaTestersFromGroup,
+  // TestFlight - Beta Testers
+  listBetaTesters, inviteBetaTester, deleteBetaTester,
+  // In-App Purchases
+  listIAP, createIAP, getIAP, deleteIAP,
+  // Subscription Groups
+  listSubscriptionGroups, createSubscriptionGroup, deleteSubscriptionGroup,
 ];
