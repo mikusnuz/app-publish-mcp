@@ -1,0 +1,42 @@
+{
+  "name": "app-publish-mcp",
+  "version": "0.1.0",
+  "description": "Unified MCP server for App Store Connect & Google Play Console",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "app-publish-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "app-store-connect",
+    "google-play",
+    "apple",
+    "android",
+    "publish",
+    "deploy",
+    "mobile",
+    "claude-code"
+  ],
+  "author": "mikusnuz",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "jsonwebtoken": "^9.0.2",
+    "google-auth-library": "^9.14.0",
+    "googleapis": "^144.0.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
