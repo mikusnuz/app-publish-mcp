@@ -26,6 +26,20 @@
   ],
   "author": "mikusnuz",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mikusnuz/app-publish-mcp.git"
+  },
+  "homepage": "https://github.com/mikusnuz/app-publish-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/mikusnuz/app-publish-mcp/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist/**/*"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "jsonwebtoken": "^9.0.2",
