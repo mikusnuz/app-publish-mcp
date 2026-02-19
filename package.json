@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "app-publish-mcp": "dist/index.js"
+    "app-publish-mcp": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",

@@ -5,6 +5,7 @@ import { AppleClient } from './apple/client.js';
 import { GoogleClient } from './google/client.js';
 import { appleTools } from './apple/tools.js';
 import { googleTools } from './google/tools.js';
+import { loadSavedGoogleToken } from './auth.js';
 
 const server = new McpServer({
   name: 'app-publish-mcp',
@@ -28,9 +29,22 @@ if (appleKeyId && appleIssuerId && appleP8Path) {
   });
 }
 
+// Google auth: env vars > saved token file (~/.app-publish-mcp/google.json)
 const googleSaPath = process.env.GOOGLE_SERVICE_ACCOUNT_PATH;
+const googleClientId = process.env.GOOGLE_CLIENT_ID;
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+const googleRefreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+
 if (googleSaPath) {
-  googleClient = new GoogleClient(googleSaPath);
+  googleClient = new GoogleClient({ serviceAccountPath: googleSaPath });
+} else if (googleClientId && googleClientSecret && googleRefreshToken) {
+  googleClient = new GoogleClient({ clientId: googleClientId, clientSecret: googleClientSecret, refreshToken: googleRefreshToken });
+} else {
+  // Auto-load from saved token file
+  const saved = loadSavedGoogleToken();
+  if (saved) {
+    googleClient = new GoogleClient({ clientId: saved.clientId, clientSecret: saved.clientSecret, refreshToken: saved.refreshToken });
+  }
 }
 
 // ── Register Apple tools ──

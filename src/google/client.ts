@@ -1,19 +1,36 @@
 import { google, androidpublisher_v3 } from 'googleapis';
-import { GoogleAuth } from 'google-auth-library';
+import { GoogleAuth, OAuth2Client } from 'google-auth-library';
 import { readFileSync } from 'fs';
+
+export interface GoogleClientOptions {
+  serviceAccountPath?: string;
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+}
 
 export class GoogleClient {
   private publisher: androidpublisher_v3.Androidpublisher;
 
-  constructor(serviceAccountPath: string) {
-    const auth = new GoogleAuth({
-      keyFile: serviceAccountPath,
-      scopes: ['https://www.googleapis.com/auth/androidpublisher'],
-    });
+  constructor(opts: GoogleClientOptions) {
+    let auth: GoogleAuth | OAuth2Client;
+
+    if (opts.serviceAccountPath) {
+      auth = new GoogleAuth({
+        keyFile: opts.serviceAccountPath,
+        scopes: ['https://www.googleapis.com/auth/androidpublisher'],
+      });
+    } else if (opts.clientId && opts.clientSecret && opts.refreshToken) {
+      const oauth2 = new OAuth2Client(opts.clientId, opts.clientSecret);
+      oauth2.setCredentials({ refresh_token: opts.refreshToken });
+      auth = oauth2;
+    } else {
+      throw new Error('Google client requires either serviceAccountPath or clientId+clientSecret+refreshToken');
+    }
 
     this.publisher = google.androidpublisher({
       version: 'v3',
-      auth,
+      auth: auth as any,
     });
   }
 
