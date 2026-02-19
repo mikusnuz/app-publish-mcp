@@ -177,7 +177,5 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('Error:', err.message);
-  process.exit(1);
-});
+// Export for CLI usage (called from cli.ts)
+export { main as runAuthCli };
