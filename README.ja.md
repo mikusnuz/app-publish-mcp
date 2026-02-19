@@ -2,6 +2,8 @@
 
 # app-publish-mcp
 
+[![npm version](https://img.shields.io/npm/v/app-publish-mcp)](https://www.npmjs.com/package/app-publish-mcp)
+
 **App Store Connect**と**Google Play Console**のための統合[MCP (Model Context Protocol)](https://modelcontextprotocol.io)サーバー。アプリのリスティング、スクリーンショット、リリース、レビュー、申請をAIアシスタントから管理できます。
 
 ## 機能
