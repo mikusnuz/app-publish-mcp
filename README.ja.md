@@ -8,11 +8,12 @@
 
 ## 機能
 
-### Apple App Store Connect (29ツール)
+### Apple App Store Connect (56ツール)
 | カテゴリ | ツール |
 |----------|-------|
 | アプリ管理 | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
 | Bundle ID | `apple_list_bundle_ids`, `apple_create_bundle_id` |
+| Bundle ID 機能 | `apple_list_bundle_id_capabilities`, `apple_enable_capability`, `apple_disable_capability` |
 | バージョン | `apple_list_versions`, `apple_create_version` |
 | バージョンローカライゼーション | `apple_list_version_localizations`, `apple_create_version_localization`, `apple_update_version_localization` |
 | アプリ情報ローカライゼーション | `apple_list_app_info_localizations`, `apple_update_app_info_localization` |
@@ -23,16 +24,28 @@
 | 申請 | `apple_submit_for_review`, `apple_cancel_submission` |
 | 価格設定 | `apple_get_pricing`, `apple_set_price`, `apple_list_availability` |
 | カスタマーレビュー | `apple_list_reviews`, `apple_respond_to_review` |
+| 証明書 | `apple_list_certificates`, `apple_create_certificate`, `apple_revoke_certificate` |
+| プロビジョニングプロファイル | `apple_list_profiles`, `apple_create_profile`, `apple_delete_profile` |
+| デバイス | `apple_list_devices`, `apple_register_device`, `apple_update_device` |
+| TestFlight ベータグループ | `apple_list_beta_groups`, `apple_create_beta_group`, `apple_delete_beta_group`, `apple_add_beta_testers_to_group`, `apple_remove_beta_testers_from_group` |
+| TestFlight ベータテスター | `apple_list_beta_testers`, `apple_invite_beta_tester`, `apple_delete_beta_tester` |
+| アプリ内課金 | `apple_list_iap`, `apple_create_iap`, `apple_get_iap`, `apple_delete_iap` |
+| サブスクリプショングループ | `apple_list_subscription_groups`, `apple_create_subscription_group`, `apple_delete_subscription_group` |
 
-### Google Play Console (20ツール)
+### Google Play Console (35ツール)
 | カテゴリ | ツール |
 |----------|-------|
-| 編集ライフサイクル | `google_create_edit`, `google_commit_edit`, `google_delete_edit` |
-| ストアリスティング | `google_list_listings`, `google_get_listing`, `google_update_listing` |
+| 編集ライフサイクル | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
+| アプリ詳細 | `google_get_details`, `google_update_details` |
+| ストアリスティング | `google_list_listings`, `google_get_listing`, `google_update_listing`, `google_delete_listing` |
+| 国別利用可否 | `google_get_country_availability` |
+| テスター | `google_get_testers`, `google_update_testers` |
 | 画像 | `google_list_images`, `google_upload_image`, `google_delete_image`, `google_delete_all_images` |
 | トラックとリリース | `google_list_tracks`, `google_get_track`, `google_create_release`, `google_promote_release`, `google_halt_release` |
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | レビュー | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
+| アプリ内商品 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
+| サブスクリプション | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
 
 ## セットアップ
 
@@ -111,10 +124,21 @@ GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
 
 ```
 1. google_create_edit → 編集セッションを開始
-2. google_update_listing → ストアリスティングを更新
-3. google_upload_bundle → .aabファイルをアップロード
-4. google_create_release → 本番トラックでリリースを作成
-5. google_commit_edit → 変更を公開
+2. google_update_details → 連絡先情報を更新
+3. google_update_listing → ストアリスティングを更新
+4. google_upload_bundle → .aabファイルをアップロード
+5. google_create_release → 本番トラックでリリースを作成
+6. google_validate_edit → エラーチェック
+7. google_commit_edit → 変更を公開
+```
+
+### Google Playアプリ内商品の管理
+
+```
+1. google_list_iap → 全商品を一覧
+2. google_create_iap → 新しい管理商品を作成
+3. google_update_iap → 価格や説明を更新
+4. google_delete_iap → 商品を削除
 ```
 
 ## ライセンス

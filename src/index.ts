@@ -6,10 +6,17 @@ import { GoogleClient } from './google/client.js';
 import { appleTools } from './apple/tools.js';
 import { googleTools } from './google/tools.js';
 import { loadSavedGoogleToken } from './auth.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
 
 const server = new McpServer({
   name: 'app-publish-mcp',
-  version: '0.1.0',
+  version: pkg.version,
 });
 
 // ── Initialize clients from env ──

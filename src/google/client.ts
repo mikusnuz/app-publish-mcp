@@ -48,8 +48,32 @@ export class GoogleClient {
     await this.publisher.edits.commit({ packageName, editId });
   }
 
+  async validateEdit(packageName: string, editId: string): Promise<void> {
+    await this.publisher.edits.validate({ packageName, editId });
+  }
+
   async deleteEdit(packageName: string, editId: string): Promise<void> {
     await this.publisher.edits.delete({ packageName, editId });
+  }
+
+  // ─── App Details ───
+  async getDetails(packageName: string, editId: string) {
+    const res = await this.publisher.edits.details.get({
+      packageName, editId,
+    });
+    return res.data;
+  }
+
+  async updateDetails(
+    packageName: string,
+    editId: string,
+    details: { defaultLanguage?: string; contactWebsite?: string; contactEmail?: string; contactPhone?: string },
+  ) {
+    const res = await this.publisher.edits.details.patch({
+      packageName, editId,
+      requestBody: details,
+    });
+    return res.data;
   }
 
   // ─── Store listing ───
@@ -78,6 +102,41 @@ export class GoogleClient {
       packageName, editId,
     });
     return res.data.listings ?? [];
+  }
+
+  async deleteListing(packageName: string, editId: string, language: string) {
+    await this.publisher.edits.listings.delete({
+      packageName, editId, language,
+    });
+  }
+
+  // ─── Country Availability ───
+  async getCountryAvailability(packageName: string, editId: string, track: string) {
+    const res = await this.publisher.edits.countryavailability.get({
+      packageName, editId, track,
+    });
+    return res.data;
+  }
+
+  // ─── Testers ───
+  async getTesters(packageName: string, editId: string, track: string) {
+    const res = await this.publisher.edits.testers.get({
+      packageName, editId, track,
+    });
+    return res.data;
+  }
+
+  async updateTesters(
+    packageName: string,
+    editId: string,
+    track: string,
+    testers: { googleGroups?: string[] },
+  ) {
+    const res = await this.publisher.edits.testers.patch({
+      packageName, editId, track,
+      requestBody: testers,
+    });
+    return res.data;
   }
 
   // ─── Images ───
@@ -181,6 +240,65 @@ export class GoogleClient {
       packageName, editId,
       media,
     } as any);
+    return res.data;
+  }
+
+  // ─── In-App Products ───
+  async listInAppProducts(packageName: string) {
+    const res = await this.publisher.inappproducts.list({ packageName });
+    return res.data.inappproduct ?? [];
+  }
+
+  async getInAppProduct(packageName: string, sku: string) {
+    const res = await this.publisher.inappproducts.get({ packageName, sku });
+    return res.data;
+  }
+
+  async createInAppProduct(packageName: string, product: androidpublisher_v3.Schema$InAppProduct) {
+    const res = await this.publisher.inappproducts.insert({
+      packageName,
+      requestBody: product,
+    });
+    return res.data;
+  }
+
+  async updateInAppProduct(packageName: string, sku: string, product: androidpublisher_v3.Schema$InAppProduct) {
+    const res = await this.publisher.inappproducts.patch({
+      packageName, sku,
+      requestBody: product,
+    });
+    return res.data;
+  }
+
+  async deleteInAppProduct(packageName: string, sku: string) {
+    await this.publisher.inappproducts.delete({ packageName, sku });
+  }
+
+  // ─── Subscriptions (monetization) ───
+  async listSubscriptions(packageName: string) {
+    const res = await this.publisher.monetization.subscriptions.list({ packageName });
+    return res.data.subscriptions ?? [];
+  }
+
+  async getSubscription(packageName: string, productId: string) {
+    const res = await this.publisher.monetization.subscriptions.get({ packageName, productId });
+    return res.data;
+  }
+
+  async createSubscription(packageName: string, productId: string, subscription: androidpublisher_v3.Schema$Subscription) {
+    const res = await this.publisher.monetization.subscriptions.create({
+      packageName,
+      productId,
+      requestBody: subscription,
+    });
+    return res.data;
+  }
+
+  async archiveSubscription(packageName: string, productId: string) {
+    const res = await this.publisher.monetization.subscriptions.archive({
+      packageName, productId,
+      requestBody: {},
+    });
     return res.data;
   }
 

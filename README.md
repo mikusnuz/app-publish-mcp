@@ -8,11 +8,12 @@ A unified [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server
 
 ## Features
 
-### Apple App Store Connect (29 tools)
+### Apple App Store Connect (56 tools)
 | Category | Tools |
 |----------|-------|
 | App Management | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
 | Bundle IDs | `apple_list_bundle_ids`, `apple_create_bundle_id` |
+| Bundle ID Capabilities | `apple_list_bundle_id_capabilities`, `apple_enable_capability`, `apple_disable_capability` |
 | Versions | `apple_list_versions`, `apple_create_version` |
 | Version Localizations | `apple_list_version_localizations`, `apple_create_version_localization`, `apple_update_version_localization` |
 | App Info Localizations | `apple_list_app_info_localizations`, `apple_update_app_info_localization` |
@@ -23,16 +24,28 @@ A unified [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server
 | Submission | `apple_submit_for_review`, `apple_cancel_submission` |
 | Pricing | `apple_get_pricing`, `apple_set_price`, `apple_list_availability` |
 | Customer Reviews | `apple_list_reviews`, `apple_respond_to_review` |
+| Certificates | `apple_list_certificates`, `apple_create_certificate`, `apple_revoke_certificate` |
+| Provisioning Profiles | `apple_list_profiles`, `apple_create_profile`, `apple_delete_profile` |
+| Devices | `apple_list_devices`, `apple_register_device`, `apple_update_device` |
+| TestFlight Beta Groups | `apple_list_beta_groups`, `apple_create_beta_group`, `apple_delete_beta_group`, `apple_add_beta_testers_to_group`, `apple_remove_beta_testers_from_group` |
+| TestFlight Beta Testers | `apple_list_beta_testers`, `apple_invite_beta_tester`, `apple_delete_beta_tester` |
+| In-App Purchases | `apple_list_iap`, `apple_create_iap`, `apple_get_iap`, `apple_delete_iap` |
+| Subscription Groups | `apple_list_subscription_groups`, `apple_create_subscription_group`, `apple_delete_subscription_group` |
 
-### Google Play Console (20 tools)
+### Google Play Console (35 tools)
 | Category | Tools |
 |----------|-------|
-| Edit Lifecycle | `google_create_edit`, `google_commit_edit`, `google_delete_edit` |
-| Store Listing | `google_list_listings`, `google_get_listing`, `google_update_listing` |
+| Edit Lifecycle | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
+| App Details | `google_get_details`, `google_update_details` |
+| Store Listing | `google_list_listings`, `google_get_listing`, `google_update_listing`, `google_delete_listing` |
+| Country Availability | `google_get_country_availability` |
+| Testers | `google_get_testers`, `google_update_testers` |
 | Images | `google_list_images`, `google_upload_image`, `google_delete_image`, `google_delete_all_images` |
 | Tracks & Releases | `google_list_tracks`, `google_get_track`, `google_create_release`, `google_promote_release`, `google_halt_release` |
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | Reviews | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
+| In-App Products | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
+| Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
 
 ## Setup
 
@@ -111,10 +124,21 @@ Add to `~/.claude/settings.local.json`:
 
 ```
 1. google_create_edit → start edit session
-2. google_update_listing → update store listing
-3. google_upload_bundle → upload .aab file
-4. google_create_release → create release on production track
-5. google_commit_edit → publish changes
+2. google_update_details → update contact info
+3. google_update_listing → update store listing
+4. google_upload_bundle → upload .aab file
+5. google_create_release → create release on production track
+6. google_validate_edit → check for errors
+7. google_commit_edit → publish changes
+```
+
+### Manage Google Play in-app products
+
+```
+1. google_list_iap → list all products
+2. google_create_iap → create a new managed product
+3. google_update_iap → update price or description
+4. google_delete_iap → remove a product
 ```
 
 ## License

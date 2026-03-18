@@ -37,6 +37,19 @@ const commitEdit: ToolDef = {
   },
 };
 
+const validateEdit: ToolDef = {
+  name: 'google_validate_edit',
+  description: 'Validate an edit session without committing. Useful to check for errors before commit.',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID from google_create_edit'),
+  }),
+  handler: async (client, args) => {
+    await client.validateEdit(args.packageName, args.editId);
+    return { success: true, note: 'Edit is valid and ready to commit.' };
+  },
+};
+
 const deleteEdit: ToolDef = {
   name: 'google_delete_edit',
   description: 'Discard an edit session without committing changes',
@@ -51,7 +64,40 @@ const deleteEdit: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
-// 2. Store Listing
+// 2. App Details
+// ═══════════════════════════════════════════
+
+const getDetails: ToolDef = {
+  name: 'google_get_details',
+  description: 'Get app details (default language, contact email/phone/website)',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID'),
+  }),
+  handler: async (client, args) => {
+    return client.getDetails(args.packageName, args.editId);
+  },
+};
+
+const updateDetails: ToolDef = {
+  name: 'google_update_details',
+  description: 'Update app details (default language, contact email/phone/website)',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID'),
+    defaultLanguage: z.string().optional().describe('Default language code in BCP 47 format (e.g. en-US)'),
+    contactWebsite: z.string().optional().describe('User-visible website URL'),
+    contactEmail: z.string().optional().describe('User-visible support email'),
+    contactPhone: z.string().optional().describe('User-visible support phone number'),
+  }),
+  handler: async (client, args) => {
+    const { packageName, editId, ...details } = args;
+    return client.updateDetails(packageName, editId, details);
+  },
+};
+
+// ═══════════════════════════════════════════
+// 3. Store Listing
 // ═══════════════════════════════════════════
 
 const listListings: ToolDef = {
@@ -96,8 +142,67 @@ const updateListing: ToolDef = {
   },
 };
 
+const deleteListing: ToolDef = {
+  name: 'google_delete_listing',
+  description: 'Delete a store listing for a specific language',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID'),
+    language: z.string().describe('Language code to delete (e.g. ko-KR)'),
+  }),
+  handler: async (client, args) => {
+    await client.deleteListing(args.packageName, args.editId, args.language);
+    return { success: true };
+  },
+};
+
 // ═══════════════════════════════════════════
-// 3. Images (Screenshots, Icons, Feature Graphics)
+// 4. Country Availability & Testers
+// ═══════════════════════════════════════════
+
+const getCountryAvailability: ToolDef = {
+  name: 'google_get_country_availability',
+  description: 'Get country availability for a specific track',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID'),
+    track: z.string().describe('Track name (e.g. production, beta, alpha, internal)'),
+  }),
+  handler: async (client, args) => {
+    return client.getCountryAvailability(args.packageName, args.editId, args.track);
+  },
+};
+
+const getTesters: ToolDef = {
+  name: 'google_get_testers',
+  description: 'Get tester configuration for a track',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID'),
+    track: z.string().describe('Track name (e.g. internal, alpha, beta)'),
+  }),
+  handler: async (client, args) => {
+    return client.getTesters(args.packageName, args.editId, args.track);
+  },
+};
+
+const updateTesters: ToolDef = {
+  name: 'google_update_testers',
+  description: 'Update tester Google Groups for a track',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID'),
+    track: z.string().describe('Track name (e.g. internal, alpha, beta)'),
+    googleGroups: z.array(z.string()).optional().describe('List of Google Group email addresses'),
+  }),
+  handler: async (client, args) => {
+    const { packageName, editId, track, ...testers } = args;
+    return client.updateTesters(packageName, editId, track, testers);
+  },
+};
+
+// ═══════════════════════════════════════════
+// 5. Images (Screenshots, Icons, Feature Graphics)
 // ═══════════════════════════════════════════
 
 const listImages: ToolDef = {
@@ -171,7 +276,7 @@ const deleteAllImages: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
-// 4. Tracks & Releases
+// 6. Tracks & Releases
 // ═══════════════════════════════════════════
 
 const listTracks: ToolDef = {
@@ -278,7 +383,7 @@ const haltRelease: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
-// 5. Bundle / APK Upload
+// 7. Bundle / APK Upload
 // ═══════════════════════════════════════════
 
 const uploadBundle: ToolDef = {
@@ -308,7 +413,7 @@ const uploadApk: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
-// 6. Reviews
+// 8. Reviews
 // ═══════════════════════════════════════════
 
 const listReviews: ToolDef = {
@@ -348,14 +453,164 @@ const replyToReview: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
+// 9. In-App Products
+// ═══════════════════════════════════════════
+
+const listInAppProducts: ToolDef = {
+  name: 'google_list_iap',
+  description: 'List all in-app products (managed products) for an app',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+  }),
+  handler: async (client, args) => {
+    return client.listInAppProducts(args.packageName);
+  },
+};
+
+const getInAppProduct: ToolDef = {
+  name: 'google_get_iap',
+  description: 'Get details of a specific in-app product',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    sku: z.string().describe('Product SKU'),
+  }),
+  handler: async (client, args) => {
+    return client.getInAppProduct(args.packageName, args.sku);
+  },
+};
+
+const createInAppProduct: ToolDef = {
+  name: 'google_create_iap',
+  description: 'Create a new in-app product (managed product)',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    sku: z.string().describe('Product SKU (unique identifier)'),
+    defaultLanguage: z.string().describe('Default language (e.g. en-US)'),
+    defaultTitle: z.string().describe('Default product title'),
+    defaultDescription: z.string().describe('Default product description'),
+    status: z.enum(['active', 'inactive']).default('active'),
+    purchaseType: z.enum(['managedUser', 'subscription']).default('managedUser'),
+    defaultPriceCurrencyCode: z.string().describe('Currency code (e.g. USD)'),
+    defaultPriceMicros: z.string().describe('Price in micros (e.g. 990000 for $0.99)'),
+  }),
+  handler: async (client, args) => {
+    return client.createInAppProduct(args.packageName, {
+      sku: args.sku,
+      status: args.status,
+      purchaseType: args.purchaseType,
+      defaultLanguage: args.defaultLanguage,
+      listings: {
+        [args.defaultLanguage]: {
+          title: args.defaultTitle,
+          description: args.defaultDescription,
+        },
+      },
+      defaultPrice: {
+        priceMicros: args.defaultPriceMicros,
+        currency: args.defaultPriceCurrencyCode,
+      },
+    });
+  },
+};
+
+const updateInAppProduct: ToolDef = {
+  name: 'google_update_iap',
+  description: 'Update an existing in-app product',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    sku: z.string().describe('Product SKU'),
+    defaultLanguage: z.string().optional().describe('Default language'),
+    title: z.string().optional().describe('Product title (for default language)'),
+    description: z.string().optional().describe('Product description (for default language)'),
+    status: z.enum(['active', 'inactive']).optional(),
+    defaultPriceCurrencyCode: z.string().optional().describe('Currency code'),
+    defaultPriceMicros: z.string().optional().describe('Price in micros'),
+  }),
+  handler: async (client, args) => {
+    const product: any = {};
+    if (args.status) product.status = args.status;
+    if (args.defaultLanguage) product.defaultLanguage = args.defaultLanguage;
+    if (args.title || args.description) {
+      const lang = args.defaultLanguage || 'en-US';
+      product.listings = { [lang]: {} as any };
+      if (args.title) product.listings[lang].title = args.title;
+      if (args.description) product.listings[lang].description = args.description;
+    }
+    if (args.defaultPriceCurrencyCode && args.defaultPriceMicros) {
+      product.defaultPrice = {
+        priceMicros: args.defaultPriceMicros,
+        currency: args.defaultPriceCurrencyCode,
+      };
+    }
+    return client.updateInAppProduct(args.packageName, args.sku, product);
+  },
+};
+
+const deleteInAppProduct: ToolDef = {
+  name: 'google_delete_iap',
+  description: 'Delete an in-app product',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    sku: z.string().describe('Product SKU to delete'),
+  }),
+  handler: async (client, args) => {
+    await client.deleteInAppProduct(args.packageName, args.sku);
+    return { success: true };
+  },
+};
+
+// ═══════════════════════════════════════════
+// 10. Subscriptions (monetization)
+// ═══════════════════════════════════════════
+
+const listSubscriptions: ToolDef = {
+  name: 'google_list_subscriptions',
+  description: 'List all subscriptions for an app',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+  }),
+  handler: async (client, args) => {
+    return client.listSubscriptions(args.packageName);
+  },
+};
+
+const getSubscription: ToolDef = {
+  name: 'google_get_subscription',
+  description: 'Get details of a specific subscription',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    productId: z.string().describe('Subscription product ID'),
+  }),
+  handler: async (client, args) => {
+    return client.getSubscription(args.packageName, args.productId);
+  },
+};
+
+const archiveSubscription: ToolDef = {
+  name: 'google_archive_subscription',
+  description: 'Archive a subscription (remove from Google Play but retain for existing subscribers)',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    productId: z.string().describe('Subscription product ID to archive'),
+  }),
+  handler: async (client, args) => {
+    return client.archiveSubscription(args.packageName, args.productId);
+  },
+};
+
+// ═══════════════════════════════════════════
 // Export all tools
 // ═══════════════════════════════════════════
 
 export const googleTools: ToolDef[] = [
   // Edit lifecycle
-  createEdit, commitEdit, deleteEdit,
+  createEdit, commitEdit, validateEdit, deleteEdit,
+  // App details
+  getDetails, updateDetails,
   // Store listing
-  listListings, getListing, updateListing,
+  listListings, getListing, updateListing, deleteListing,
+  // Country availability & Testers
+  getCountryAvailability, getTesters, updateTesters,
   // Images
   listImages, uploadImage, deleteImage, deleteAllImages,
   // Tracks & Releases
@@ -364,4 +619,8 @@ export const googleTools: ToolDef[] = [
   uploadBundle, uploadApk,
   // Reviews
   listReviews, getReview, replyToReview,
+  // In-App Products
+  listInAppProducts, getInAppProduct, createInAppProduct, updateInAppProduct, deleteInAppProduct,
+  // Subscriptions
+  listSubscriptions, getSubscription, archiveSubscription,
 ];

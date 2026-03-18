@@ -8,11 +8,12 @@
 
 ## 功能特性
 
-### Apple App Store Connect（29个工具）
+### Apple App Store Connect（56个工具）
 | 类别 | 工具 |
 |----------|-------|
 | 应用管理 | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
 | Bundle ID | `apple_list_bundle_ids`, `apple_create_bundle_id` |
+| Bundle ID 功能 | `apple_list_bundle_id_capabilities`, `apple_enable_capability`, `apple_disable_capability` |
 | 版本管理 | `apple_list_versions`, `apple_create_version` |
 | 版本本地化 | `apple_list_version_localizations`, `apple_create_version_localization`, `apple_update_version_localization` |
 | 应用信息本地化 | `apple_list_app_info_localizations`, `apple_update_app_info_localization` |
@@ -23,16 +24,28 @@
 | 提交 | `apple_submit_for_review`, `apple_cancel_submission` |
 | 价格 | `apple_get_pricing`, `apple_set_price`, `apple_list_availability` |
 | 用户评论 | `apple_list_reviews`, `apple_respond_to_review` |
+| 证书 | `apple_list_certificates`, `apple_create_certificate`, `apple_revoke_certificate` |
+| 描述文件 | `apple_list_profiles`, `apple_create_profile`, `apple_delete_profile` |
+| 设备 | `apple_list_devices`, `apple_register_device`, `apple_update_device` |
+| TestFlight 测试组 | `apple_list_beta_groups`, `apple_create_beta_group`, `apple_delete_beta_group`, `apple_add_beta_testers_to_group`, `apple_remove_beta_testers_from_group` |
+| TestFlight 测试员 | `apple_list_beta_testers`, `apple_invite_beta_tester`, `apple_delete_beta_tester` |
+| 应用内购买 | `apple_list_iap`, `apple_create_iap`, `apple_get_iap`, `apple_delete_iap` |
+| 订阅组 | `apple_list_subscription_groups`, `apple_create_subscription_group`, `apple_delete_subscription_group` |
 
-### Google Play Console（20个工具）
+### Google Play Console（35个工具）
 | 类别 | 工具 |
 |----------|-------|
-| 编辑生命周期 | `google_create_edit`, `google_commit_edit`, `google_delete_edit` |
-| 商店列表 | `google_list_listings`, `google_get_listing`, `google_update_listing` |
+| 编辑生命周期 | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
+| 应用详情 | `google_get_details`, `google_update_details` |
+| 商店列表 | `google_list_listings`, `google_get_listing`, `google_update_listing`, `google_delete_listing` |
+| 国家可用性 | `google_get_country_availability` |
+| 测试员 | `google_get_testers`, `google_update_testers` |
 | 图片 | `google_list_images`, `google_upload_image`, `google_delete_image`, `google_delete_all_images` |
 | 轨道和发布 | `google_list_tracks`, `google_get_track`, `google_create_release`, `google_promote_release`, `google_halt_release` |
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | 评论 | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
+| 应用内商品 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
+| 订阅 | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
 
 ## 配置
 
@@ -111,10 +124,21 @@ GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
 
 ```
 1. google_create_edit → 启动编辑会话
-2. google_update_listing → 更新商店列表
-3. google_upload_bundle → 上传 .aab 文件
-4. google_create_release → 在生产轨道上创建发布
-5. google_commit_edit → 发布更改
+2. google_update_details → 更新联系信息
+3. google_update_listing → 更新商店列表
+4. google_upload_bundle → 上传 .aab 文件
+5. google_create_release → 在生产轨道上创建发布
+6. google_validate_edit → 检查错误
+7. google_commit_edit → 发布更改
+```
+
+### 管理 Google Play 应用内商品
+
+```
+1. google_list_iap → 列出所有商品
+2. google_create_iap → 创建新的托管商品
+3. google_update_iap → 更新价格或描述
+4. google_delete_iap → 删除商品
 ```
 
 ## 许可证

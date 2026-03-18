@@ -8,11 +8,12 @@
 
 ## 기능
 
-### Apple App Store Connect (29개 도구)
+### Apple App Store Connect (56개 도구)
 | 카테고리 | 도구 |
 |----------|-------|
 | 앱 관리 | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
 | Bundle ID | `apple_list_bundle_ids`, `apple_create_bundle_id` |
+| Bundle ID 기능 | `apple_list_bundle_id_capabilities`, `apple_enable_capability`, `apple_disable_capability` |
 | 버전 | `apple_list_versions`, `apple_create_version` |
 | 버전 로컬라이제이션 | `apple_list_version_localizations`, `apple_create_version_localization`, `apple_update_version_localization` |
 | 앱 정보 로컬라이제이션 | `apple_list_app_info_localizations`, `apple_update_app_info_localization` |
@@ -23,16 +24,28 @@
 | 제출 | `apple_submit_for_review`, `apple_cancel_submission` |
 | 가격 | `apple_get_pricing`, `apple_set_price`, `apple_list_availability` |
 | 고객 리뷰 | `apple_list_reviews`, `apple_respond_to_review` |
+| 인증서 | `apple_list_certificates`, `apple_create_certificate`, `apple_revoke_certificate` |
+| 프로비저닝 프로파일 | `apple_list_profiles`, `apple_create_profile`, `apple_delete_profile` |
+| 디바이스 | `apple_list_devices`, `apple_register_device`, `apple_update_device` |
+| TestFlight 베타 그룹 | `apple_list_beta_groups`, `apple_create_beta_group`, `apple_delete_beta_group`, `apple_add_beta_testers_to_group`, `apple_remove_beta_testers_from_group` |
+| TestFlight 베타 테스터 | `apple_list_beta_testers`, `apple_invite_beta_tester`, `apple_delete_beta_tester` |
+| 인앱 구매 | `apple_list_iap`, `apple_create_iap`, `apple_get_iap`, `apple_delete_iap` |
+| 구독 그룹 | `apple_list_subscription_groups`, `apple_create_subscription_group`, `apple_delete_subscription_group` |
 
-### Google Play Console (20개 도구)
+### Google Play Console (35개 도구)
 | 카테고리 | 도구 |
 |----------|-------|
-| 편집 생명주기 | `google_create_edit`, `google_commit_edit`, `google_delete_edit` |
-| 스토어 리스팅 | `google_list_listings`, `google_get_listing`, `google_update_listing` |
+| 편집 생명주기 | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
+| 앱 상세 정보 | `google_get_details`, `google_update_details` |
+| 스토어 리스팅 | `google_list_listings`, `google_get_listing`, `google_update_listing`, `google_delete_listing` |
+| 국가 가용성 | `google_get_country_availability` |
+| 테스터 | `google_get_testers`, `google_update_testers` |
 | 이미지 | `google_list_images`, `google_upload_image`, `google_delete_image`, `google_delete_all_images` |
 | 트랙 & 릴리스 | `google_list_tracks`, `google_get_track`, `google_create_release`, `google_promote_release`, `google_halt_release` |
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | 리뷰 | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
+| 인앱 상품 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
+| 구독 | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
 
 ## 설정
 
@@ -111,10 +124,21 @@ GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
 
 ```
 1. google_create_edit → 편집 세션 시작
-2. google_update_listing → 스토어 리스팅 업데이트
-3. google_upload_bundle → .aab 파일 업로드
-4. google_create_release → production 트랙에 릴리스 생성
-5. google_commit_edit → 변경사항 게시
+2. google_update_details → 연락처 정보 업데이트
+3. google_update_listing → 스토어 리스팅 업데이트
+4. google_upload_bundle → .aab 파일 업로드
+5. google_create_release → production 트랙에 릴리스 생성
+6. google_validate_edit → 오류 확인
+7. google_commit_edit → 변경사항 게시
+```
+
+### Google Play 인앱 상품 관리
+
+```
+1. google_list_iap → 전체 상품 목록
+2. google_create_iap → 새 관리형 상품 생성
+3. google_update_iap → 가격 또는 설명 업데이트
+4. google_delete_iap → 상품 삭제
 ```
 
 ## 라이선스
