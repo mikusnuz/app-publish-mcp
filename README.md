@@ -47,6 +47,18 @@ A unified [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server
 | In-App Products | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
 | Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
 
+### Prompts (2)
+| Prompt | Description |
+|--------|-------------|
+| `app_release_checklist` | Guided checklist for releasing an app update — walks through version creation, metadata, build assignment and submission for iOS and/or Android |
+| `app_store_optimization` | ASO audit that reviews current listing metadata (title, description, keywords, screenshots, localization) and provides actionable improvement recommendations |
+
+### Resources (2)
+| URI | Description |
+|-----|-------------|
+| `app-publish://config` | Current server configuration — connected accounts, auth methods, tool counts |
+| `app-publish://supported-platforms` | All supported tools grouped by platform with descriptions |
+
 ## Setup
 
 ### 1. Install

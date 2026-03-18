@@ -1,6 +1,6 @@
 {
   "name": "app-publish-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Unified MCP server for App Store Connect & Google Play Console",
   "type": "module",
   "main": "dist/index.js",

@@ -47,6 +47,18 @@
 | 应用内商品 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
 | 订阅 | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
 
+### 提示词 (2个)
+| 提示词 | 描述 |
+|--------|-------------|
+| `app_release_checklist` | 应用更新发布指导清单 — 逐步引导 iOS 和/或 Android 的版本创建、元数据、构建分配和提交 |
+| `app_store_optimization` | ASO 审计 — 分析当前列表元数据（标题、描述、关键词、截图、本地化）并提供可操作的改进建议 |
+
+### 资源 (2个)
+| URI | 描述 |
+|-----|-------------|
+| `app-publish://config` | 当前服务器配置 — 已连接的账户、认证方式、工具数量 |
+| `app-publish://supported-platforms` | 按平台分组的所有支持工具及其描述 |
+
 ## 配置
 
 ### 1. 安装

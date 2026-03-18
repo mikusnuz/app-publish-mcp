@@ -47,6 +47,18 @@
 | 인앱 상품 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
 | 구독 | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
 
+### 프롬프트 (2개)
+| 프롬프트 | 설명 |
+|--------|-------------|
+| `app_release_checklist` | 앱 업데이트 릴리스를 위한 가이드 체크리스트 — iOS 및/또는 Android에서 버전 생성, 메타데이터, 빌드 할당, 제출까지 단계별 안내 |
+| `app_store_optimization` | 현재 리스팅 메타데이터(제목, 설명, 키워드, 스크린샷, 로컬라이제이션)를 분석하고 실행 가능한 개선 권장사항을 제공하는 ASO 감사 |
+
+### 리소스 (2개)
+| URI | 설명 |
+|-----|-------------|
+| `app-publish://config` | 현재 서버 구성 — 연결된 계정, 인증 방식, 도구 수 |
+| `app-publish://supported-platforms` | 플랫폼별로 그룹화된 모든 지원 도구와 설명 |
+
 ## 설정
 
 ### 1. 설치

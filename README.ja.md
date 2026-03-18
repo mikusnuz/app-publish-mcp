@@ -47,6 +47,18 @@
 | アプリ内商品 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
 | サブスクリプション | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
 
+### プロンプト (2個)
+| プロンプト | 説明 |
+|--------|-------------|
+| `app_release_checklist` | アプリアップデートリリースのガイドチェックリスト — iOS/Androidでバージョン作成、メタデータ、ビルド割り当て、申請まで段階的にガイド |
+| `app_store_optimization` | 現在のリスティングメタデータ（タイトル、説明、キーワード、スクリーンショット、ローカライゼーション）を分析し、実行可能な改善提案を提供するASOレビュー |
+
+### リソース (2個)
+| URI | 説明 |
+|-----|-------------|
+| `app-publish://config` | 現在のサーバー設定 — 接続されたアカウント、認証方法、ツール数 |
+| `app-publish://supported-platforms` | プラットフォーム別にグループ化された全サポートツールと説明 |
+
 ## セットアップ
 
 ### 1. インストール

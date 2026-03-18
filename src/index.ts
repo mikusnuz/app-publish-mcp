@@ -9,6 +9,7 @@ import { loadSavedGoogleToken } from './auth.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { z } from 'zod';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -89,6 +90,185 @@ for (const tool of googleTools) {
     }
   });
 }
+
+// ── Prompts ──
+
+server.prompt(
+  'app_release_checklist',
+  'Guided checklist for releasing an app update on iOS and/or Android. Walks through each step from version creation to submission.',
+  {
+    platform: z.enum(['ios', 'android', 'both']).describe('Target platform(s) for the release'),
+    appId: z.string().describe('App ID (Apple App ID or Android package name)'),
+    version: z.string().describe('Version string to release (e.g. 1.2.0)'),
+  },
+  ({ platform, appId, version }) => ({
+    messages: [
+      {
+        role: 'user' as const,
+        content: {
+          type: 'text' as const,
+          text: [
+            `Guide me through releasing version ${version} for app ${appId} on ${platform === 'both' ? 'iOS and Android' : platform === 'ios' ? 'iOS' : 'Android'}.`,
+            '',
+            platform === 'ios' || platform === 'both' ? [
+              '## iOS Release Checklist',
+              '1. Use apple_list_apps to verify the app exists and get the app ID',
+              '2. Use apple_list_builds to check for an uploaded build matching this version',
+              '3. Use apple_create_version to create a new App Store version',
+              '4. Use apple_list_version_localizations to get existing localizations',
+              '5. Use apple_update_version_localization to update whatsNew / release notes for each locale',
+              '6. Use apple_assign_build to attach the build to the version',
+              '7. Use apple_update_review_detail to set reviewer contact info and demo account if needed',
+              '8. Use apple_get_age_rating to verify age rating is correct',
+              '9. Use apple_submit_for_review to submit for App Review',
+              '',
+            ].join('\n') : '',
+            platform === 'android' || platform === 'both' ? [
+              '## Android Release Checklist',
+              '1. Use google_create_edit to start an edit session',
+              '2. Use google_get_details to verify app details are current',
+              '3. Use google_list_listings to check store listings across languages',
+              '4. Use google_update_listing to update descriptions / release notes for each language',
+              '5. Use google_upload_bundle to upload the .aab if not already uploaded',
+              '6. Use google_create_release to create a release on the target track (e.g. production)',
+              '7. Use google_validate_edit to check for errors before committing',
+              '8. Use google_commit_edit to publish the changes',
+              '',
+            ].join('\n') : '',
+            'For each step, confirm the result before proceeding. Report any errors and suggest fixes.',
+          ].filter(Boolean).join('\n'),
+        },
+      },
+    ],
+  }),
+);
+
+server.prompt(
+  'app_store_optimization',
+  'App Store Optimization (ASO) review — analyzes current listing metadata and provides actionable improvement recommendations for both iOS and Android.',
+  {
+    platform: z.enum(['ios', 'android']).describe('Which platform to review'),
+    appId: z.string().describe('App ID (Apple App ID) or Android package name'),
+  },
+  ({ platform, appId }) => ({
+    messages: [
+      {
+        role: 'user' as const,
+        content: {
+          type: 'text' as const,
+          text: [
+            `Perform an App Store Optimization (ASO) audit for ${appId} on ${platform === 'ios' ? 'iOS App Store' : 'Google Play Store'}.`,
+            '',
+            platform === 'ios' ? [
+              'Steps:',
+              `1. Use apple_get_app with appId="${appId}" to get overall app info`,
+              `2. Use apple_get_app_info with appId="${appId}" to check categories`,
+              `3. Use apple_list_versions with appId="${appId}" to find the latest live version`,
+              '4. Use apple_list_version_localizations to get all localized metadata',
+              '5. Use apple_list_screenshot_sets for each localization to verify screenshots exist',
+              `6. Use apple_list_reviews with appId="${appId}" and sort="-createdDate" to get recent reviews`,
+            ].join('\n') : [
+              'Steps:',
+              `1. Use google_create_edit with packageName="${appId}" to start an edit session`,
+              `2. Use google_get_details to check app details (contact info, default language)`,
+              `3. Use google_list_listings to get all localized store listings`,
+              `4. For each listing language, use google_get_listing to get full title, short/full description`,
+              `5. Use google_list_images for each language to check screenshots, feature graphic, icon`,
+              `6. Use google_list_reviews with packageName="${appId}" to get recent reviews`,
+              '7. Use google_delete_edit to discard the edit session (read-only audit)',
+            ].join('\n'),
+            '',
+            'Analyze and report:',
+            '- **Title**: Is it keyword-rich and within character limits?',
+            '- **Description**: Does it include relevant keywords? Is it compelling?',
+            '- **Keywords** (iOS only): Are they well-optimized?',
+            '- **Screenshots**: Are all required device sizes covered? Are they high quality?',
+            '- **Localization coverage**: Which languages are missing?',
+            '- **Recent reviews**: Common complaints or praise themes?',
+            '- **Recommendations**: Specific actionable improvements ranked by impact',
+          ].join('\n'),
+        },
+      },
+    ],
+  }),
+);
+
+// ── Resources ──
+
+server.resource(
+  'config',
+  'app-publish://config',
+  {
+    description: 'Current server configuration — shows which platform accounts (Apple / Google) are connected and their auth method.',
+    mimeType: 'application/json',
+  },
+  async () => {
+    const config: Record<string, any> = {
+      server: {
+        name: 'app-publish-mcp',
+        version: pkg.version,
+      },
+      apple: {
+        connected: !!appleClient,
+        keyId: appleKeyId ? `${appleKeyId.slice(0, 4)}...` : null,
+        issuerId: appleIssuerId ? `${appleIssuerId.slice(0, 8)}...` : null,
+        vendorNumber: process.env.APPLE_VENDOR_NUMBER ? 'set' : null,
+      },
+      google: {
+        connected: !!googleClient,
+        authMethod: googleSaPath ? 'service_account' : (googleClientId ? 'oauth2' : (loadSavedGoogleToken() ? 'saved_token' : 'none')),
+      },
+      tools: {
+        apple: appleTools.length,
+        google: googleTools.length,
+        total: appleTools.length + googleTools.length,
+      },
+    };
+
+    return {
+      contents: [
+        {
+          uri: 'app-publish://config',
+          mimeType: 'application/json',
+          text: JSON.stringify(config, null, 2),
+        },
+      ],
+    };
+  },
+);
+
+server.resource(
+  'supported-platforms',
+  'app-publish://supported-platforms',
+  {
+    description: 'List of all supported tools grouped by platform and category with their descriptions.',
+    mimeType: 'application/json',
+  },
+  async () => {
+    const platforms = {
+      apple: {
+        name: 'Apple App Store Connect',
+        configured: !!appleClient,
+        tools: appleTools.map(t => ({ name: t.name, description: t.description })),
+      },
+      google: {
+        name: 'Google Play Console',
+        configured: !!googleClient,
+        tools: googleTools.map(t => ({ name: t.name, description: t.description })),
+      },
+    };
+
+    return {
+      contents: [
+        {
+          uri: 'app-publish://supported-platforms',
+          mimeType: 'application/json',
+          text: JSON.stringify(platforms, null, 2),
+        },
+      ],
+    };
+  },
+);
 
 // ── Start ──
 async function main() {
