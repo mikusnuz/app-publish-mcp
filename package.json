@@ -39,7 +39,9 @@
     "node": ">=18"
   },
   "files": [
-    "dist/**/*"
+    "dist/**/*",
+    "LICENSE",
+    "README.md"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
