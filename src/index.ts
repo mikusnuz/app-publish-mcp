@@ -281,3 +281,53 @@ main().catch((err) => {
   console.error('Fatal:', err);
   process.exit(1);
 });
+
+// ── Smithery Sandbox ──
+
+export function createSandboxServer() {
+  const sandbox = new McpServer({
+    name: 'app-publish-mcp',
+    version: pkg.version,
+  });
+
+  // Register Apple tools with null client (will show "not configured" at runtime)
+  for (const tool of appleTools) {
+    sandbox.tool(tool.name, tool.description, tool.schema.shape, async () => {
+      return { content: [{ type: 'text' as const, text: 'sandbox' }] };
+    });
+  }
+
+  // Register Google tools with null client
+  for (const tool of googleTools) {
+    sandbox.tool(tool.name, tool.description, tool.schema.shape, async () => {
+      return { content: [{ type: 'text' as const, text: 'sandbox' }] };
+    });
+  }
+
+  sandbox.prompt(
+    'app_release_checklist',
+    'Guided checklist for releasing an app update on iOS and/or Android.',
+    {
+      platform: z.enum(['ios', 'android', 'both']).describe('Target platform(s)'),
+      appId: z.string().describe('App ID'),
+      version: z.string().describe('Version string'),
+    },
+    ({ platform, appId, version }) => ({
+      messages: [{ role: 'user' as const, content: { type: 'text' as const, text: `Release ${version} for ${appId} on ${platform}.` } }],
+    }),
+  );
+
+  sandbox.prompt(
+    'app_store_optimization',
+    'App Store Optimization (ASO) review.',
+    {
+      platform: z.enum(['ios', 'android']).describe('Which platform to review'),
+      appId: z.string().describe('App ID or package name'),
+    },
+    ({ platform, appId }) => ({
+      messages: [{ role: 'user' as const, content: { type: 'text' as const, text: `ASO audit for ${appId} on ${platform}.` } }],
+    }),
+  );
+
+  return sandbox;
+}
