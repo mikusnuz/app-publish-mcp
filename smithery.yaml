@@ -1,0 +1,25 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      appleKeyId:
+        type: string
+        description: Apple App Store Connect API Key ID
+      appleIssuerId:
+        type: string
+        description: Apple App Store Connect Issuer ID
+      appleP8Path:
+        type: string
+        description: Path to Apple AuthKey .p8 file
+      appleVendorNumber:
+        type: string
+        description: Apple vendor number for sales/finance reports (optional)
+      googleServiceAccountPath:
+        type: string
+        description: Path to Google Play service account JSON key file
+  commandFunction:
+    |-
+    config => ({ command: 'npx', args: ['-y', 'app-publish-mcp'], env: { APPLE_KEY_ID: config.appleKeyId || '', APPLE_ISSUER_ID: config.appleIssuerId || '', APPLE_P8_PATH: config.appleP8Path || '', APPLE_VENDOR_NUMBER: config.appleVendorNumber || '', GOOGLE_SERVICE_ACCOUNT_PATH: config.googleServiceAccountPath || '' } })
