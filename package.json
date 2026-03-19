@@ -1,6 +1,7 @@
 {
   "name": "app-publish-mcp",
   "version": "0.3.0",
+  "mcpName": "io.github.mikusnuz/app-publish",
   "description": "Unified MCP server for App Store Connect & Google Play Console",
   "type": "module",
   "main": "dist/index.js",
