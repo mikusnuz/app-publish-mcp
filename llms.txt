@@ -1,0 +1,136 @@
+# app-publish-mcp
+
+> MCP server for App Store Connect & Google Play Console — manage app listings, screenshots, releases, reviews & submissions from AI assistants
+
+## Install
+
+```json
+{
+  "mcpServers": {
+    "app-publish-mcp": {
+      "command": "npx",
+      "args": ["-y", "app-publish-mcp"],
+      "env": {
+        "APPLE_KEY_ID": "YOUR_KEY_ID",
+        "APPLE_ISSUER_ID": "YOUR_ISSUER_ID",
+        "APPLE_P8_PATH": "/path/to/AuthKey.p8",
+        "GOOGLE_SERVICE_ACCOUNT_PATH": "/path/to/service-account.json"
+      }
+    }
+  }
+}
+```
+
+## Tools (91 total)
+
+### Apple App Store Connect (56)
+- apple_list_apps — List all apps in App Store Connect
+- apple_get_app — Get app details by ID
+- apple_get_app_info — Get app info (categories, age rating)
+- apple_update_category — Update app categories
+- apple_list_bundle_ids — List registered bundle IDs
+- apple_create_bundle_id — Register a new bundle ID
+- apple_list_bundle_id_capabilities — List capabilities for a bundle ID
+- apple_enable_capability — Enable a capability for a bundle ID
+- apple_disable_capability — Disable a capability for a bundle ID
+- apple_list_versions — List app versions
+- apple_create_version — Create a new app version
+- apple_list_version_localizations — List version localizations
+- apple_create_version_localization — Create a version localization
+- apple_update_version_localization — Update version localization (whatsNew, description, keywords)
+- apple_list_app_info_localizations — List app info localizations
+- apple_update_app_info_localization — Update app info localization
+- apple_list_screenshot_sets — List screenshot sets for a localization
+- apple_create_screenshot_set — Create a screenshot set for a display type
+- apple_upload_screenshot — Upload a screenshot image
+- apple_delete_screenshot — Delete a screenshot
+- apple_list_builds — List uploaded builds
+- apple_assign_build — Assign a build to a version
+- apple_get_age_rating — Get age rating declaration
+- apple_update_age_rating — Update age rating declaration
+- apple_update_review_detail — Update App Review contact info and notes
+- apple_submit_for_review — Submit a version for App Review
+- apple_cancel_submission — Cancel a pending submission
+- apple_get_pricing — Get current pricing info
+- apple_set_price — Set app price tier
+- apple_list_availability — List territory availability
+- apple_list_reviews — List customer reviews
+- apple_respond_to_review — Respond to a customer review
+- apple_list_certificates — List signing certificates
+- apple_create_certificate — Create a signing certificate
+- apple_revoke_certificate — Revoke a signing certificate
+- apple_list_profiles — List provisioning profiles
+- apple_create_profile — Create a provisioning profile
+- apple_delete_profile — Delete a provisioning profile
+- apple_list_devices — List registered devices
+- apple_register_device — Register a new device
+- apple_update_device — Update device info
+- apple_list_beta_groups — List TestFlight beta groups
+- apple_create_beta_group — Create a TestFlight beta group
+- apple_delete_beta_group — Delete a TestFlight beta group
+- apple_add_beta_testers_to_group — Add testers to a beta group
+- apple_remove_beta_testers_from_group — Remove testers from a beta group
+- apple_list_beta_testers — List TestFlight beta testers
+- apple_invite_beta_tester — Invite a beta tester
+- apple_delete_beta_tester — Delete a beta tester
+- apple_list_iap — List in-app purchases
+- apple_create_iap — Create an in-app purchase
+- apple_get_iap — Get in-app purchase details
+- apple_delete_iap — Delete an in-app purchase
+- apple_list_subscription_groups — List subscription groups
+- apple_create_subscription_group — Create a subscription group
+- apple_delete_subscription_group — Delete a subscription group
+
+### Google Play Console (35)
+- google_create_edit — Start a new edit session
+- google_commit_edit — Commit (publish) an edit
+- google_validate_edit — Validate an edit before committing
+- google_delete_edit — Discard an edit
+- google_get_details — Get app details
+- google_update_details — Update app details (contact info, etc.)
+- google_list_listings — List store listings (all locales)
+- google_get_listing — Get a store listing for a locale
+- google_update_listing — Update a store listing
+- google_delete_listing — Delete a store listing
+- google_get_country_availability — Get country availability for a track
+- google_get_testers — Get testers for a track
+- google_update_testers — Update testers for a track
+- google_list_images — List images for a listing
+- google_upload_image — Upload an image (screenshots, icon, feature graphic)
+- google_delete_image — Delete an image
+- google_delete_all_images — Delete all images of a type
+- google_list_tracks — List all release tracks
+- google_get_track — Get track details (releases, status)
+- google_create_release — Create a release on a track
+- google_promote_release — Promote a release to another track
+- google_halt_release — Halt a staged rollout
+- google_upload_bundle — Upload an AAB bundle
+- google_upload_apk — Upload an APK
+- google_list_reviews — List user reviews
+- google_get_review — Get a specific review
+- google_reply_to_review — Reply to a user review
+- google_list_iap — List in-app products
+- google_get_iap — Get in-app product details
+- google_create_iap — Create an in-app product
+- google_update_iap — Update an in-app product
+- google_delete_iap — Delete an in-app product
+- google_list_subscriptions — List subscriptions
+- google_get_subscription — Get subscription details
+- google_archive_subscription — Archive a subscription
+
+### Prompts (2)
+- app_release_checklist — Guided checklist for releasing an app update
+- app_store_optimization — ASO audit with actionable recommendations
+
+### Resources (2)
+- app-publish://config — Current server configuration
+- app-publish://supported-platforms — All supported tools grouped by platform
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `APPLE_KEY_ID` | For iOS | App Store Connect API Key ID |
+| `APPLE_ISSUER_ID` | For iOS | App Store Connect Issuer ID |
+| `APPLE_P8_PATH` | For iOS | Path to AuthKey .p8 file |
+| `GOOGLE_SERVICE_ACCOUNT_PATH` | For Android | Path to Google service account JSON |

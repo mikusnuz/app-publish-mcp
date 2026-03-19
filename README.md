@@ -6,6 +6,20 @@
 
 A unified [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server for **App Store Connect** and **Google Play Console**. Manage app listings, screenshots, releases, reviews and submissions — all from your AI assistant.
 
+## When to Use
+
+Use this MCP when you need to:
+
+- **"Update my app's App Store description and keywords"** — modify version localizations, app info localizations
+- **"Upload new screenshots for iPhone 16 Pro"** — create screenshot sets and upload images
+- **"Submit a new version for review"** — create version, assign build, set review info, submit
+- **"Check the status of my app review"** — list versions and check review state
+- **"Respond to a user review on Google Play"** — list reviews and reply
+- **"Create a phased release on Google Play"** — create edit, create release on a track, commit
+- **"Manage TestFlight beta testers"** — create groups, invite testers, manage access
+- **"Set up in-app purchases"** — create and manage IAPs and subscription groups on both platforms
+- **"Register a new device for development"** — manage devices, certificates, and provisioning profiles
+
 ## Features
 
 ### Apple App Store Connect (56 tools)
