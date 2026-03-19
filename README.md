@@ -6,6 +6,8 @@
 
 A unified [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server for **App Store Connect** and **Google Play Console**. Manage app listings, screenshots, releases, reviews and submissions — all from your AI assistant.
 
+[![app-publish-mcp MCP server](https://glama.ai/mcp/servers/mikusnuz/app-publish-mcp/badges/card.svg)](https://glama.ai/mcp/servers/mikusnuz/app-publish-mcp)
+
 ## When to Use
 
 Use this MCP when you need to:
