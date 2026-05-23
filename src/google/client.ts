@@ -285,12 +285,36 @@ export class GoogleClient {
     return res.data;
   }
 
-  async createSubscription(packageName: string, productId: string, subscription: androidpublisher_v3.Schema$Subscription) {
+  async createSubscription(
+    packageName: string,
+    productId: string,
+    subscription: androidpublisher_v3.Schema$Subscription,
+    regionsVersionVersion: string = '2022/02',
+  ) {
     const res = await this.publisher.monetization.subscriptions.create({
       packageName,
       productId,
+      'regionsVersion.version': regionsVersionVersion,
       requestBody: subscription,
-    });
+    } as any);
+    return (res as any).data;
+  }
+
+  async patchSubscription(
+    packageName: string,
+    productId: string,
+    subscription: androidpublisher_v3.Schema$Subscription,
+    updateMask?: string,
+    regionsVersionVersion?: string,
+  ) {
+    const params: any = {
+      packageName,
+      productId,
+      requestBody: subscription,
+    };
+    if (updateMask) params.updateMask = updateMask;
+    if (regionsVersionVersion) params['regionsVersion.version'] = regionsVersionVersion;
+    const res = await this.publisher.monetization.subscriptions.patch(params);
     return res.data;
   }
 
@@ -300,6 +324,31 @@ export class GoogleClient {
       requestBody: {},
     });
     return res.data;
+  }
+
+  // ─── Subscription Base Plans ───
+  async activateBasePlan(
+    packageName: string,
+    productId: string,
+    basePlanId: string,
+  ) {
+    const res = await this.publisher.monetization.subscriptions.basePlans.activate({
+      packageName,
+      productId,
+      basePlanId,
+      requestBody: { packageName, productId, basePlanId },
+    } as any);
+    return (res as any).data;
+  }
+
+  async deactivateBasePlan(packageName: string, productId: string, basePlanId: string) {
+    const res = await this.publisher.monetization.subscriptions.basePlans.deactivate({
+      packageName,
+      productId,
+      basePlanId,
+      requestBody: { packageName, productId, basePlanId },
+    } as any);
+    return (res as any).data;
   }
 
   // ─── Reviews ───
