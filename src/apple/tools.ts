@@ -516,21 +516,63 @@ const updateReviewDetail: ToolDef = {
 
 const submitForReview: ToolDef = {
   name: 'apple_submit_for_review',
-  description: 'Submit an App Store version for review',
+  description:
+    'Submit an App Store version for review using the reviewSubmissions flow (create a review submission, attach the version, then submit). Replaces the retired appStoreVersionSubmissions create endpoint.',
   schema: z.object({
-    versionId: z.string().describe('App Store Version ID'),
+    appId: z.string().describe('App ID'),
+    versionId: z.string().describe('App Store Version ID to submit'),
+    platform: z.enum(['IOS', 'MAC_OS', 'TV_OS', 'VISION_OS']).default('IOS').describe('Platform of the version being submitted'),
   }),
   handler: async (client, args) => {
-    return client.request('/appStoreVersionSubmissions', {
+    // Step 1: create a review submission for the app
+    const submission = await client.request('/reviewSubmissions', {
       method: 'POST',
       body: {
         data: {
-          type: 'appStoreVersionSubmissions',
+          type: 'reviewSubmissions',
+          attributes: { platform: args.platform },
           relationships: {
-            appStoreVersion: {
-              data: { type: 'appStoreVersions', id: args.versionId },
+            app: { data: { type: 'apps', id: args.appId } },
+          },
+        },
+      },
+    });
+    const submissionId = submission.data.id;
+
+    // Step 2: attach the version to the submission
+    try {
+      await client.request('/reviewSubmissionItems', {
+        method: 'POST',
+        body: {
+          data: {
+            type: 'reviewSubmissionItems',
+            relationships: {
+              reviewSubmission: { data: { type: 'reviewSubmissions', id: submissionId } },
+              appStoreVersion: { data: { type: 'appStoreVersions', id: args.versionId } },
             },
           },
+        },
+      });
+    } catch (err: any) {
+      const message = err?.message ?? String(err);
+      if (message.includes('usesNonExemptEncryption')) {
+        throw new Error(
+          `${message}\n\nHint: the build is missing its export-compliance answer. Set it by calling ` +
+            `PATCH /v1/builds/<BUILD_ID> with { "data": { "type": "builds", "id": "<BUILD_ID>", "attributes": { "usesNonExemptEncryption": false } } } ` +
+            `(or set ITSAppUsesNonExemptEncryption in the app's Info.plist), then retry apple_submit_for_review.`,
+        );
+      }
+      throw err;
+    }
+
+    // Step 3: submit the review submission
+    return client.request(`/reviewSubmissions/${submissionId}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'reviewSubmissions',
+          id: submissionId,
+          attributes: { submitted: true },
         },
       },
     });

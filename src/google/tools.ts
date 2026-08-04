@@ -127,7 +127,7 @@ const getListing: ToolDef = {
 
 const updateListing: ToolDef = {
   name: 'google_update_listing',
-  description: 'Update store listing for a specific language (title, descriptions)',
+  description: 'Update store listing for a specific language (title, descriptions, promo video)',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     editId: z.string().describe('Edit ID'),
@@ -135,6 +135,7 @@ const updateListing: ToolDef = {
     title: z.string().optional().describe('App title (max 30 chars)'),
     shortDescription: z.string().optional().describe('Short description (max 80 chars)'),
     fullDescription: z.string().optional().describe('Full description (max 4000 chars)'),
+    video: z.string().optional().describe('URL of a promotional YouTube video for the app'),
   }),
   handler: async (client, args) => {
     const { packageName, editId, language, ...listing } = args;
@@ -418,12 +419,20 @@ const uploadApk: ToolDef = {
 
 const listReviews: ToolDef = {
   name: 'google_list_reviews',
-  description: 'List user reviews for an app',
+  description:
+    'List user reviews for an app. Note: the Play Developer API reviews.list endpoint only surfaces recent reviews and requires the "Reply to reviews" account permission for the linked service account (Play Console → Users and permissions). If this returns an empty array for an app with visible reviews in Play Console, verify that permission first, then use pageToken to page through more results.',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
+    maxResults: z.number().optional().describe('Max reviews to return per page (API max is 100)'),
+    pageToken: z.string().optional().describe('Pagination token from a previous response (nextPageToken)'),
+    translationLanguage: z.string().optional().describe('BCP-47 language code to translate review text into'),
   }),
   handler: async (client, args) => {
-    return client.listReviews(args.packageName);
+    return client.listReviews(args.packageName, {
+      maxResults: args.maxResults,
+      token: args.pageToken,
+      translationLanguage: args.translationLanguage,
+    });
   },
 };
 
@@ -433,9 +442,10 @@ const getReview: ToolDef = {
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     reviewId: z.string().describe('Review ID'),
+    translationLanguage: z.string().optional().describe('BCP-47 language code to translate review text into'),
   }),
   handler: async (client, args) => {
-    return client.getReview(args.packageName, args.reviewId);
+    return client.getReview(args.packageName, args.reviewId, args.translationLanguage);
   },
 };
 

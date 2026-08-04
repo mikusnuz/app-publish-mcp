@@ -88,7 +88,7 @@ export class GoogleClient {
     packageName: string,
     editId: string,
     language: string,
-    listing: { title?: string; shortDescription?: string; fullDescription?: string },
+    listing: { title?: string; shortDescription?: string; fullDescription?: string; video?: string },
   ) {
     const res = await this.publisher.edits.listings.update({
       packageName, editId, language,
@@ -303,13 +303,25 @@ export class GoogleClient {
   }
 
   // ─── Reviews ───
-  async listReviews(packageName: string) {
-    const res = await this.publisher.reviews.list({ packageName });
-    return res.data.reviews ?? [];
+  async listReviews(
+    packageName: string,
+    opts: { maxResults?: number; startIndex?: number; token?: string; translationLanguage?: string } = {},
+  ) {
+    const res = await this.publisher.reviews.list({
+      packageName,
+      maxResults: opts.maxResults,
+      startIndex: opts.startIndex,
+      token: opts.token,
+      translationLanguage: opts.translationLanguage,
+    });
+    return {
+      reviews: res.data.reviews ?? [],
+      nextPageToken: res.data.tokenPagination?.nextPageToken ?? null,
+    };
   }
 
-  async getReview(packageName: string, reviewId: string) {
-    const res = await this.publisher.reviews.get({ packageName, reviewId });
+  async getReview(packageName: string, reviewId: string, translationLanguage?: string) {
+    const res = await this.publisher.reviews.get({ packageName, reviewId, translationLanguage });
     return res.data;
   }
 

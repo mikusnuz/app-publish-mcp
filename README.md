@@ -57,9 +57,11 @@ Use this MCP when you need to:
 | Images | `google_list_images`, `google_upload_image`, `google_delete_image`, `google_delete_all_images` |
 | Tracks & Releases | `google_list_tracks`, `google_get_track`, `google_create_release`, `google_promote_release`, `google_halt_release` |
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
-| Reviews | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
+| Reviews¹ | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | In-App Products | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
 | Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
+
+¹ If `google_list_reviews` returns an empty array for an app that has visible reviews in Play Console, first check that the linked service account has the **"Reply to reviews"** account permission (Play Console → Users and permissions) — the API does not raise a distinct error for a missing permission, it just returns no results. Also note the endpoint only surfaces recent reviews; use `pageToken` to page through more.
 
 ### Prompts (2)
 | Prompt | Description |
