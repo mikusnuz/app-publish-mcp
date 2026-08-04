@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { androidpublisher_v3 } from 'googleapis';
 import { GoogleClient } from './client.js';
 
 interface ToolDef {
@@ -608,6 +609,167 @@ const archiveSubscription: ToolDef = {
   },
 };
 
+const createSubscription: ToolDef = {
+  name: 'google_create_subscription',
+  description:
+    'Create a new subscription on Google Play (monetization API). Pass the full subscription body — including listings and at least one base plan with billing details and per-region pricing. Base plans are created in DRAFT state; call google_activate_subscription_base_plan to make them purchasable.',
+  schema: z.object({
+    packageName: z.string().describe('Android package name (e.g. com.example.app)'),
+    productId: z
+      .string()
+      .describe('Subscription product ID, e.g. com.example.app.pro_monthly'),
+    listings: z
+      .array(
+        z.object({
+          languageCode: z.string().describe('BCP-47 locale code, e.g. en-US'),
+          title: z.string().describe('Localized subscription title (max 30 chars)'),
+          description: z
+            .string()
+            .describe('Localized description (max 80 chars)'),
+          benefits: z
+            .array(z.string())
+            .optional()
+            .describe('Up to four short benefit bullets per locale'),
+        }),
+      )
+      .min(1)
+      .describe('At least one localization is required'),
+    basePlans: z
+      .array(
+        z.object({
+          basePlanId: z
+            .string()
+            .describe('Stable base plan id, e.g. pro-monthly'),
+          autoRenewing: z
+            .object({
+              billingPeriodDuration: z
+                .string()
+                .describe('ISO 8601 duration, e.g. P1M, P3M, P1Y'),
+              gracePeriodDuration: z
+                .string()
+                .optional()
+                .describe('ISO 8601 grace period duration, e.g. P3D'),
+              accountHoldDuration: z
+                .string()
+                .optional()
+                .describe('ISO 8601 account hold duration, e.g. P30D'),
+              prorationMode: z
+                .string()
+                .optional()
+                .describe(
+                  'e.g. SUBSCRIPTION_PRORATION_MODE_CHARGE_ON_NEXT_BILLING_DATE',
+                ),
+              resubscribeState: z
+                .string()
+                .optional()
+                .describe('e.g. RESUBSCRIBE_STATE_ACTIVE'),
+              legacyCompatible: z.boolean().optional(),
+            })
+            .describe('Auto-renewing billing config. Use this for standard monthly/yearly subs.'),
+          regionalConfigs: z
+            .array(
+              z.object({
+                regionCode: z.string().describe('ISO 3166-1 alpha-2 region, e.g. US'),
+                newSubscriberAvailability: z.boolean().optional().default(true),
+                priceMicros: z
+                  .string()
+                  .describe('Price in micros, e.g. 3990000 for $3.99'),
+                currency: z.string().describe('ISO 4217 currency code, e.g. USD'),
+              }),
+            )
+            .min(1)
+            .describe('At least one region price is required'),
+          offerTags: z
+            .array(z.string())
+            .optional()
+            .describe('Optional offer tag identifiers'),
+        }),
+      )
+      .min(1)
+      .describe('At least one base plan is required'),
+    regionsVersion: z
+      .string()
+      .optional()
+      .default('2022/02')
+      .describe('Google Play regions version. Default 2022/02 matches Google API expectations.'),
+  }),
+  handler: async (client, args) => {
+    const body: androidpublisher_v3.Schema$Subscription = {
+      packageName: args.packageName,
+      productId: args.productId,
+      listings: args.listings.map((l: any) => ({
+        languageCode: l.languageCode,
+        title: l.title,
+        description: l.description,
+        benefits: l.benefits,
+      })),
+      basePlans: args.basePlans.map((bp: any) => {
+        const priceToMoney = (micros: string, currency: string) => {
+          const n = BigInt(micros);
+          const unitsBig = n / 1_000_000n;
+          const nanos = Number((n % 1_000_000n) * 1_000n);
+          return { currencyCode: currency, units: unitsBig.toString(), nanos };
+        };
+        return {
+          basePlanId: bp.basePlanId,
+          state: 'DRAFT',
+          autoRenewingBasePlanType: {
+            billingPeriodDuration: bp.autoRenewing.billingPeriodDuration,
+            gracePeriodDuration: bp.autoRenewing.gracePeriodDuration,
+            accountHoldDuration: bp.autoRenewing.accountHoldDuration,
+            prorationMode: bp.autoRenewing.prorationMode,
+            resubscribeState: bp.autoRenewing.resubscribeState,
+            legacyCompatible: bp.autoRenewing.legacyCompatible ?? false,
+          },
+          regionalConfigs: bp.regionalConfigs.map((rc: any) => ({
+            regionCode: rc.regionCode,
+            newSubscriberAvailability: rc.newSubscriberAvailability ?? true,
+            price: priceToMoney(rc.priceMicros, rc.currency),
+          })),
+          offerTags: bp.offerTags?.map((t: string) => ({ tag: t })),
+        };
+      }),
+    };
+    return client.createSubscription(
+      args.packageName,
+      args.productId,
+      body,
+      args.regionsVersion,
+    );
+  },
+};
+
+const activateBasePlan: ToolDef = {
+  name: 'google_activate_subscription_base_plan',
+  description:
+    'Activate a subscription base plan so it becomes purchasable. Base plans default to DRAFT after creation; this is required to make them ACTIVE.',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    productId: z.string().describe('Subscription product ID'),
+    basePlanId: z.string().describe('Base plan id to activate'),
+  }),
+  handler: async (client, args) => {
+    return client.activateBasePlan(
+      args.packageName,
+      args.productId,
+      args.basePlanId,
+    );
+  },
+};
+
+const deactivateBasePlan: ToolDef = {
+  name: 'google_deactivate_subscription_base_plan',
+  description: 'Deactivate a subscription base plan so it stops being purchasable.',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    productId: z.string().describe('Subscription product ID'),
+    basePlanId: z.string().describe('Base plan id to deactivate'),
+  }),
+  handler: async (client, args) => {
+    return client.deactivateBasePlan(args.packageName, args.productId, args.basePlanId);
+  },
+};
+
 // ═══════════════════════════════════════════
 // Export all tools
 // ═══════════════════════════════════════════
@@ -632,5 +794,6 @@ export const googleTools: ToolDef[] = [
   // In-App Products
   listInAppProducts, getInAppProduct, createInAppProduct, updateInAppProduct, deleteInAppProduct,
   // Subscriptions
-  listSubscriptions, getSubscription, archiveSubscription,
+  listSubscriptions, getSubscription, createSubscription, archiveSubscription,
+  activateBasePlan, deactivateBasePlan,
 ];

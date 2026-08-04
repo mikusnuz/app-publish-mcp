@@ -46,7 +46,7 @@ Use this MCP when you need to:
 | In-App Purchases | `apple_list_iap`, `apple_create_iap`, `apple_get_iap`, `apple_delete_iap` |
 | Subscription Groups | `apple_list_subscription_groups`, `apple_create_subscription_group`, `apple_delete_subscription_group` |
 
-### Google Play Console (35 tools)
+### Google Play Console (38 tools)
 | Category | Tools |
 |----------|-------|
 | Edit Lifecycle | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -59,7 +59,7 @@ Use this MCP when you need to:
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | Reviews¹ | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | In-App Products | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
-| Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
+| Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_archive_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
 
 ¹ If `google_list_reviews` returns an empty array for an app that has visible reviews in Play Console, first check that the linked service account has the **"Reply to reviews"** account permission (Play Console → Users and permissions) — the API does not raise a distinct error for a missing permission, it just returns no results. Also note the endpoint only surfaces recent reviews; use `pageToken` to page through more.
 
@@ -168,6 +168,55 @@ Add to `~/.claude/settings.local.json`:
 3. google_update_iap → update price or description
 4. google_delete_iap → remove a product
 ```
+
+### Create a Google Play subscription
+
+```
+1. google_create_subscription → create the subscription with listings and a
+   base plan (billing period, grace period, regional pricing in micros).
+   The base plan is created in DRAFT state.
+2. google_activate_subscription_base_plan → flip the base plan to ACTIVE so
+   it becomes purchasable in the Play Store.
+3. google_deactivate_subscription_base_plan → pause sales without deleting
+   the plan.
+4. google_archive_subscription → archive the subscription when retired.
+```
+
+Example arguments for `google_create_subscription`:
+
+```jsonc
+{
+  "packageName": "com.example.app",
+  "productId": "com.example.app.pro_monthly",
+  "listings": [
+    {
+      "languageCode": "en-US",
+      "title": "Pro Monthly",
+      "description": "Unlock all premium features.",
+      "benefits": ["Ad-free", "Cloud sync", "Priority support"]
+    }
+  ],
+  "basePlans": [
+    {
+      "basePlanId": "pro-monthly",
+      "autoRenewing": {
+        "billingPeriodDuration": "P1M",
+        "gracePeriodDuration": "P3D",
+        "accountHoldDuration": "P30D"
+      },
+      "regionalConfigs": [
+        { "regionCode": "US", "priceMicros": "3990000", "currency": "USD" },
+        { "regionCode": "TR", "priceMicros": "99000000", "currency": "TRY" }
+      ]
+    }
+  ]
+}
+```
+
+Prices are given in **micros** (1 USD = 1,000,000 micros) and converted to
+the Play API's `Money` shape (`units` + `nanos`) internally. `regionsVersion`
+defaults to `2022/02`, which the Play API currently requires when regional
+pricing is supplied.
 
 ## License
 

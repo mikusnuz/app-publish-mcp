@@ -331,12 +331,14 @@ const uploadScreenshot: ToolDef = {
       },
     });
 
-    // Step 2: Upload binary to each upload operation URL
+    // Step 2: Upload binary to each upload operation URL.
+    // Apple returns pre-signed S3 operations with their own requestHeaders —
+    // honor them exactly; don't inject a Bearer token or Content-Type.
     const screenshot = reservation.data;
     const operations = screenshot.attributes.uploadOperations;
 
     for (const op of operations) {
-      await client.upload(op.url, args.filePath, 'image/png');
+      await client.uploadOperation(op, args.filePath);
     }
 
     // Step 3: Commit

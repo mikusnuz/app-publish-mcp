@@ -90,6 +90,41 @@ export class AppleClient {
     return res.json();
   }
 
+  async uploadOperation(
+    operation: {
+      method?: string;
+      url?: string;
+      requestHeaders?: Array<{ name?: string; value?: string }>;
+      length?: number;
+      offset?: number;
+    },
+    filePath: string,
+  ): Promise<void> {
+    if (!operation.url || !operation.method) {
+      throw new Error('Apple upload operation missing url or method');
+    }
+    const fullBytes = readFileSync(filePath);
+    const start = operation.offset ?? 0;
+    const len = operation.length ?? fullBytes.length - start;
+    const slice = fullBytes.subarray(start, start + len);
+
+    const headers: Record<string, string> = {};
+    for (const h of operation.requestHeaders ?? []) {
+      if (h.name && h.value !== undefined) headers[h.name] = h.value;
+    }
+
+    const res = await fetch(operation.url, {
+      method: operation.method,
+      headers,
+      body: slice,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Apple upload → ${res.status}: ${text}`);
+    }
+  }
+
   get vendorNumber() {
     return this.config.vendorNumber;
   }
