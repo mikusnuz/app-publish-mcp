@@ -296,8 +296,8 @@ export class GoogleClient {
       productId,
       'regionsVersion.version': regionsVersionVersion,
       requestBody: subscription,
-    } as any);
-    return (res as any).data;
+    });
+    return res.data;
   }
 
   async patchSubscription(
@@ -337,8 +337,8 @@ export class GoogleClient {
       productId,
       basePlanId,
       requestBody: { packageName, productId, basePlanId },
-    } as any);
-    return (res as any).data;
+    });
+    return res.data;
   }
 
   async deactivateBasePlan(packageName: string, productId: string, basePlanId: string) {
@@ -347,8 +347,8 @@ export class GoogleClient {
       productId,
       basePlanId,
       requestBody: { packageName, productId, basePlanId },
-    } as any);
-    return (res as any).data;
+    });
+    return res.data;
   }
 
   // ─── Reviews ───

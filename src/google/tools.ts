@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { androidpublisher_v3 } from 'googleapis';
 import { GoogleClient } from './client.js';
 
 interface ToolDef {
@@ -612,10 +613,6 @@ const createSubscription: ToolDef = {
         z.object({
           languageCode: z.string().describe('BCP-47 locale code, e.g. en-US'),
           title: z.string().describe('Localized subscription title (max 30 chars)'),
-          menuTitle: z
-            .string()
-            .optional()
-            .describe('Short menu title (max 20 chars)'),
           description: z
             .string()
             .describe('Localized description (max 80 chars)'),
@@ -687,13 +684,12 @@ const createSubscription: ToolDef = {
       .describe('Google Play regions version. Default 2022/02 matches Google API expectations.'),
   }),
   handler: async (client, args) => {
-    const body: any = {
+    const body: androidpublisher_v3.Schema$Subscription = {
       packageName: args.packageName,
       productId: args.productId,
       listings: args.listings.map((l: any) => ({
         languageCode: l.languageCode,
         title: l.title,
-        menuTitle: l.menuTitle,
         description: l.description,
         benefits: l.benefits,
       })),
