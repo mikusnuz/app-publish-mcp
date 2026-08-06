@@ -371,7 +371,7 @@ export class GoogleClient {
     product: androidpublisher_v3.Schema$OneTimeProduct,
     opts: { allowMissing: boolean; updateMask?: string; regionsVersionVersion?: string },
   ) {
-    const params: any = {
+    const params: androidpublisher_v3.Params$Resource$Monetization$Onetimeproducts$Patch = {
       packageName,
       productId,
       allowMissing: opts.allowMissing,
