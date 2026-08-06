@@ -22,7 +22,7 @@ Use this MCP when you need to:
 
 ## Features
 
-### Apple App Store Connect (56 tools)
+### Apple App Store Connect (70 tools)
 | Category | Tools |
 |----------|-------|
 | App Management | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
@@ -45,8 +45,12 @@ Use this MCP when you need to:
 | TestFlight Beta Testers | `apple_list_beta_testers`, `apple_invite_beta_tester`, `apple_delete_beta_tester` |
 | In-App Purchases | `apple_list_iap`, `apple_create_iap`, `apple_get_iap`, `apple_delete_iap` |
 | Subscription Groups | `apple_list_subscription_groups`, `apple_create_subscription_group`, `apple_delete_subscription_group` |
+| Accessibility Declarations | `apple_list_accessibility_declarations`, `apple_create_accessibility_declaration`, `apple_update_accessibility_declaration`, `apple_delete_accessibility_declaration` |
+| Price Points | `apple_get_subscription_price_points`, `apple_get_iap_price_points` |
+| Offer Codes | `apple_list_subscription_offer_codes`, `apple_get_subscription_offer_code`, `apple_create_subscription_offer_code`, `apple_list_iap_offer_codes`, `apple_get_iap_offer_code`, `apple_create_iap_offer_code` |
+| Win-Back Offers | `apple_list_win_back_offers`, `apple_get_win_back_offer` |
 
-### Google Play Console (38 tools)
+### Google Play Console (45 tools)
 | Category | Tools |
 |----------|-------|
 | Edit Lifecycle | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -60,8 +64,11 @@ Use this MCP when you need to:
 | Reviews¹ | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | In-App Products | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
 | Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_archive_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
+| One-time Products² | `google_list_one_time_products`, `google_get_one_time_product`, `google_create_one_time_product`, `google_update_one_time_product`, `google_delete_one_time_product`, `google_activate_purchase_option`, `google_deactivate_purchase_option` |
 
 ¹ If `google_list_reviews` returns an empty array for an app that has visible reviews in Play Console, first check that the linked service account has the **"Reply to reviews"** account permission (Play Console → Users and permissions) — the API does not raise a distinct error for a missing permission, it just returns no results. Also note the endpoint only surfaces recent reviews; use `pageToken` to page through more.
+
+² One-time Products (`monetization.onetimeproducts`) is Google Play's newer purchase model for buy/rent items, distinct from the older `inappproducts` API. Purchase options are created active by default; use `google_deactivate_purchase_option` to pull one down without deleting the product.
 
 ### Prompts (2)
 | Prompt | Description |

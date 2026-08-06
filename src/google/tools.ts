@@ -771,6 +771,185 @@ const deactivateBasePlan: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
+// 11. One-time Products (monetization)
+// ═══════════════════════════════════════════
+
+const listOneTimeProducts: ToolDef = {
+  name: 'google_list_one_time_products',
+  description: 'List all one-time products (non-subscription purchases, buy or rent) for an app',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+  }),
+  handler: async (client, args) => {
+    return client.listOneTimeProducts(args.packageName);
+  },
+};
+
+const getOneTimeProduct: ToolDef = {
+  name: 'google_get_one_time_product',
+  description: 'Get details of a specific one-time product',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    productId: z.string().describe('One-time product ID'),
+  }),
+  handler: async (client, args) => {
+    return client.getOneTimeProduct(args.packageName, args.productId);
+  },
+};
+
+const oneTimeProductPurchaseOptionSchema = z.object({
+  purchaseOptionId: z.string().describe('Stable purchase option id, e.g. buy-standard'),
+  buy: z
+    .object({
+      legacyCompatible: z.boolean().optional().describe('Marks this as the single "buy" option usable by legacy PBL flows'),
+      multiQuantityEnabled: z.boolean().optional(),
+    })
+    .optional()
+    .describe('Configures this as a one-time buy option. Mutually exclusive with rent.'),
+  rent: z
+    .object({
+      rentalPeriod: z.string().describe('ISO 8601 duration the entitlement lasts, e.g. P30D'),
+      expirationPeriod: z.string().optional().describe('ISO 8601 duration after consumption starts before the entitlement is revoked, e.g. P2D'),
+    })
+    .optional()
+    .describe('Configures this as a rental option. Mutually exclusive with buy.'),
+  regionalConfigs: z
+    .array(
+      z.object({
+        regionCode: z.string().describe('ISO 3166-1 alpha-2 region, e.g. US'),
+        priceMicros: z.string().describe('Price in micros, e.g. 3990000 for $3.99'),
+        currency: z.string().describe('ISO 4217 currency code, e.g. USD'),
+        availability: z.enum(['AVAILABLE', 'NOT_AVAILABLE']).optional().default('AVAILABLE'),
+      }),
+    )
+    .min(1)
+    .describe('At least one region price is required'),
+  offerTags: z.array(z.string()).optional(),
+});
+
+const oneTimeProductBody = {
+  packageName: z.string().describe('Android package name (e.g. com.example.app)'),
+  productId: z.string().describe('One-time product ID, e.g. com.example.app.remove_ads'),
+  listings: z
+    .array(
+      z.object({
+        languageCode: z.string().describe('BCP-47 locale code, e.g. en-US'),
+        title: z.string().describe('Localized title (max 55 chars)'),
+        description: z.string().describe('Localized description (max 200 chars)'),
+      }),
+    )
+    .min(1)
+    .describe('At least one localization is required'),
+  purchaseOptions: z.array(oneTimeProductPurchaseOptionSchema).min(1).describe('At least one purchase option (buy or rent) is required'),
+  regionsVersion: z
+    .string()
+    .optional()
+    .default('2022/02')
+    .describe('Google Play regions version. Default 2022/02 matches Google API expectations.'),
+};
+
+function buildOneTimeProduct(args: any): androidpublisher_v3.Schema$OneTimeProduct {
+  const priceToMoney = (micros: string, currency: string) => {
+    const n = BigInt(micros);
+    const unitsBig = n / 1_000_000n;
+    const nanos = Number((n % 1_000_000n) * 1_000n);
+    return { currencyCode: currency, units: unitsBig.toString(), nanos };
+  };
+  return {
+    packageName: args.packageName,
+    productId: args.productId,
+    listings: args.listings.map((l: any) => ({
+      languageCode: l.languageCode,
+      title: l.title,
+      description: l.description,
+    })),
+    purchaseOptions: args.purchaseOptions.map((po: any) => ({
+      purchaseOptionId: po.purchaseOptionId,
+      buyOption: po.buy
+        ? { legacyCompatible: po.buy.legacyCompatible ?? false, multiQuantityEnabled: po.buy.multiQuantityEnabled ?? false }
+        : undefined,
+      rentOption: po.rent ? { rentalPeriod: po.rent.rentalPeriod, expirationPeriod: po.rent.expirationPeriod } : undefined,
+      regionalPricingAndAvailabilityConfigs: po.regionalConfigs.map((rc: any) => ({
+        regionCode: rc.regionCode,
+        price: priceToMoney(rc.priceMicros, rc.currency),
+        availability: rc.availability ?? 'AVAILABLE',
+      })),
+      offerTags: po.offerTags?.map((t: string) => ({ tag: t })),
+    })),
+  };
+}
+
+const createOneTimeProduct: ToolDef = {
+  name: 'google_create_one_time_product',
+  description:
+    'Create a new one-time product (buy or rent) on Google Play using the monetization.onetimeproducts API. Pass listings and at least one purchase option with regional pricing. Purchase options are created ACTIVE by default under this upsert; use google_deactivate_purchase_option to pull one down.',
+  schema: z.object(oneTimeProductBody),
+  handler: async (client, args) => {
+    const body = buildOneTimeProduct(args);
+    return client.upsertOneTimeProduct(args.packageName, args.productId, body, {
+      allowMissing: true,
+      regionsVersionVersion: args.regionsVersion,
+    });
+  },
+};
+
+const updateOneTimeProduct: ToolDef = {
+  name: 'google_update_one_time_product',
+  description: 'Update an existing one-time product. Pass the full desired listings/purchaseOptions state plus an updateMask (e.g. "listings,purchaseOptions").',
+  schema: z.object({
+    ...oneTimeProductBody,
+    updateMask: z.string().describe('Comma-separated field mask of top-level fields to update, e.g. "listings,purchaseOptions"'),
+  }),
+  handler: async (client, args) => {
+    const body = buildOneTimeProduct(args);
+    return client.upsertOneTimeProduct(args.packageName, args.productId, body, {
+      allowMissing: false,
+      updateMask: args.updateMask,
+      regionsVersionVersion: args.regionsVersion,
+    });
+  },
+};
+
+const deleteOneTimeProduct: ToolDef = {
+  name: 'google_delete_one_time_product',
+  description: 'Delete a one-time product',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    productId: z.string().describe('One-time product ID to delete'),
+  }),
+  handler: async (client, args) => {
+    await client.deleteOneTimeProduct(args.packageName, args.productId);
+    return { success: true };
+  },
+};
+
+const activatePurchaseOption: ToolDef = {
+  name: 'google_activate_purchase_option',
+  description: 'Activate a one-time product purchase option so it becomes available for purchase',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    productId: z.string().describe('One-time product ID'),
+    purchaseOptionId: z.string().describe('Purchase option ID to activate'),
+  }),
+  handler: async (client, args) => {
+    return client.setPurchaseOptionState(args.packageName, args.productId, args.purchaseOptionId, 'activate');
+  },
+};
+
+const deactivatePurchaseOption: ToolDef = {
+  name: 'google_deactivate_purchase_option',
+  description: 'Deactivate a one-time product purchase option so it stops being available for purchase',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    productId: z.string().describe('One-time product ID'),
+    purchaseOptionId: z.string().describe('Purchase option ID to deactivate'),
+  }),
+  handler: async (client, args) => {
+    return client.setPurchaseOptionState(args.packageName, args.productId, args.purchaseOptionId, 'deactivate');
+  },
+};
+
+// ═══════════════════════════════════════════
 // Export all tools
 // ═══════════════════════════════════════════
 
@@ -796,4 +975,7 @@ export const googleTools: ToolDef[] = [
   // Subscriptions
   listSubscriptions, getSubscription, createSubscription, archiveSubscription,
   activateBasePlan, deactivateBasePlan,
+  // One-time Products
+  listOneTimeProducts, getOneTimeProduct, createOneTimeProduct, updateOneTimeProduct, deleteOneTimeProduct,
+  activatePurchaseOption, deactivatePurchaseOption,
 ];

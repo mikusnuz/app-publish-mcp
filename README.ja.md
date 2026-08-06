@@ -8,7 +8,7 @@
 
 ## 機能
 
-### Apple App Store Connect (56ツール)
+### Apple App Store Connect (70ツール)
 | カテゴリ | ツール |
 |----------|-------|
 | アプリ管理 | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
@@ -31,8 +31,12 @@
 | TestFlight ベータテスター | `apple_list_beta_testers`, `apple_invite_beta_tester`, `apple_delete_beta_tester` |
 | アプリ内課金 | `apple_list_iap`, `apple_create_iap`, `apple_get_iap`, `apple_delete_iap` |
 | サブスクリプショングループ | `apple_list_subscription_groups`, `apple_create_subscription_group`, `apple_delete_subscription_group` |
+| アクセシビリティ宣言 | `apple_list_accessibility_declarations`, `apple_create_accessibility_declaration`, `apple_update_accessibility_declaration`, `apple_delete_accessibility_declaration` |
+| 価格ポイント | `apple_get_subscription_price_points`, `apple_get_iap_price_points` |
+| オファーコード | `apple_list_subscription_offer_codes`, `apple_get_subscription_offer_code`, `apple_create_subscription_offer_code`, `apple_list_iap_offer_codes`, `apple_get_iap_offer_code`, `apple_create_iap_offer_code` |
+| ウィンバックオファー | `apple_list_win_back_offers`, `apple_get_win_back_offer` |
 
-### Google Play Console (35ツール)
+### Google Play Console (45ツール)
 | カテゴリ | ツール |
 |----------|-------|
 | 編集ライフサイクル | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -45,7 +49,8 @@
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | レビュー | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | アプリ内商品 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
-| サブスクリプション | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
+| サブスクリプション | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_archive_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
+| 単発商品 | `google_list_one_time_products`, `google_get_one_time_product`, `google_create_one_time_product`, `google_update_one_time_product`, `google_delete_one_time_product`, `google_activate_purchase_option`, `google_deactivate_purchase_option` |
 
 ### プロンプト (2個)
 | プロンプト | 説明 |

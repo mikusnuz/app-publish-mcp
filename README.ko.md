@@ -8,7 +8,7 @@
 
 ## 기능
 
-### Apple App Store Connect (56개 도구)
+### Apple App Store Connect (70개 도구)
 | 카테고리 | 도구 |
 |----------|-------|
 | 앱 관리 | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
@@ -31,8 +31,12 @@
 | TestFlight 베타 테스터 | `apple_list_beta_testers`, `apple_invite_beta_tester`, `apple_delete_beta_tester` |
 | 인앱 구매 | `apple_list_iap`, `apple_create_iap`, `apple_get_iap`, `apple_delete_iap` |
 | 구독 그룹 | `apple_list_subscription_groups`, `apple_create_subscription_group`, `apple_delete_subscription_group` |
+| 접근성 선언 | `apple_list_accessibility_declarations`, `apple_create_accessibility_declaration`, `apple_update_accessibility_declaration`, `apple_delete_accessibility_declaration` |
+| 가격 포인트 | `apple_get_subscription_price_points`, `apple_get_iap_price_points` |
+| 오퍼 코드 | `apple_list_subscription_offer_codes`, `apple_get_subscription_offer_code`, `apple_create_subscription_offer_code`, `apple_list_iap_offer_codes`, `apple_get_iap_offer_code`, `apple_create_iap_offer_code` |
+| 윈백 오퍼 | `apple_list_win_back_offers`, `apple_get_win_back_offer` |
 
-### Google Play Console (35개 도구)
+### Google Play Console (45개 도구)
 | 카테고리 | 도구 |
 |----------|-------|
 | 편집 생명주기 | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -45,7 +49,8 @@
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | 리뷰 | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | 인앱 상품 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
-| 구독 | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
+| 구독 | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_archive_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
+| 일회성 상품 | `google_list_one_time_products`, `google_get_one_time_product`, `google_create_one_time_product`, `google_update_one_time_product`, `google_delete_one_time_product`, `google_activate_purchase_option`, `google_deactivate_purchase_option` |
 
 ### 프롬프트 (2개)
 | 프롬프트 | 설명 |

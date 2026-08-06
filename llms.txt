@@ -21,9 +21,9 @@
 }
 ```
 
-## Tools (91 total)
+## Tools (115 total)
 
-### Apple App Store Connect (56)
+### Apple App Store Connect (70)
 - apple_list_apps — List all apps in App Store Connect
 - apple_get_app — Get app details by ID
 - apple_get_app_info — Get app info (categories, age rating)
@@ -80,8 +80,22 @@
 - apple_list_subscription_groups — List subscription groups
 - apple_create_subscription_group — Create a subscription group
 - apple_delete_subscription_group — Delete a subscription group
+- apple_list_accessibility_declarations — List accessibility nutrition label declarations for an app
+- apple_create_accessibility_declaration — Create an accessibility declaration for a device family
+- apple_update_accessibility_declaration — Update an accessibility declaration
+- apple_delete_accessibility_declaration — Delete an accessibility declaration
+- apple_get_subscription_price_points — Get per-territory price points for a subscription
+- apple_get_iap_price_points — Get per-territory price points for an in-app purchase
+- apple_list_subscription_offer_codes — List offer codes for a subscription
+- apple_get_subscription_offer_code — Get a subscription offer code
+- apple_create_subscription_offer_code — Create a subscription offer code
+- apple_list_iap_offer_codes — List offer codes for an in-app purchase
+- apple_get_iap_offer_code — Get an in-app purchase offer code
+- apple_create_iap_offer_code — Create an in-app purchase offer code
+- apple_list_win_back_offers — List win-back offers for a subscription
+- apple_get_win_back_offer — Get a win-back offer
 
-### Google Play Console (35)
+### Google Play Console (45)
 - google_create_edit — Start a new edit session
 - google_commit_edit — Commit (publish) an edit
 - google_validate_edit — Validate an edit before committing
@@ -116,7 +130,17 @@
 - google_delete_iap — Delete an in-app product
 - google_list_subscriptions — List subscriptions
 - google_get_subscription — Get subscription details
+- google_create_subscription — Create a subscription with listings and a base plan
 - google_archive_subscription — Archive a subscription
+- google_activate_subscription_base_plan — Activate a subscription base plan
+- google_deactivate_subscription_base_plan — Deactivate a subscription base plan
+- google_list_one_time_products — List one-time products (buy/rent)
+- google_get_one_time_product — Get a one-time product's details
+- google_create_one_time_product — Create a one-time product with purchase options
+- google_update_one_time_product — Update a one-time product
+- google_delete_one_time_product — Delete a one-time product
+- google_activate_purchase_option — Activate a one-time product purchase option
+- google_deactivate_purchase_option — Deactivate a one-time product purchase option
 
 ### Prompts (2)
 - app_release_checklist — Guided checklist for releasing an app update

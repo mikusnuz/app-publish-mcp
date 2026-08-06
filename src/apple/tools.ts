@@ -583,15 +583,22 @@ const submitForReview: ToolDef = {
 
 const cancelSubmission: ToolDef = {
   name: 'apple_cancel_submission',
-  description: 'Cancel an in-review submission (if still possible)',
+  description:
+    'Cancel an in-review submission (if still possible). Operates on the reviewSubmissions resource created by apple_submit_for_review — sets attributes.canceled=true via PATCH. The legacy appStoreVersionSubmissions DELETE endpoint only applied to submissions created through the retired create-submission flow and does not accept reviewSubmissions IDs.',
   schema: z.object({
-    submissionId: z.string().describe('Submission ID'),
+    submissionId: z.string().describe('Review Submission ID (the ID returned by apple_submit_for_review)'),
   }),
   handler: async (client, args) => {
-    await client.request(`/appStoreVersionSubmissions/${args.submissionId}`, {
-      method: 'DELETE',
+    return client.request(`/reviewSubmissions/${args.submissionId}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'reviewSubmissions',
+          id: args.submissionId,
+          attributes: { canceled: true },
+        },
+      },
     });
-    return { success: true };
   },
 };
 
@@ -1251,6 +1258,293 @@ const deleteSubscriptionGroup: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
+// 19. Accessibility Declarations
+// ═══════════════════════════════════════════
+
+const accessibilityBooleanFields = {
+  supportsAudioDescriptions: z.boolean().optional(),
+  supportsCaptions: z.boolean().optional(),
+  supportsDarkInterface: z.boolean().optional(),
+  supportsDifferentiateWithoutColorAlone: z.boolean().optional(),
+  supportsLargerText: z.boolean().optional(),
+  supportsReducedMotion: z.boolean().optional(),
+  supportsSufficientContrast: z.boolean().optional(),
+  supportsVoiceControl: z.boolean().optional(),
+  supportsVoiceover: z.boolean().optional(),
+};
+
+const listAccessibilityDeclarations: ToolDef = {
+  name: 'apple_list_accessibility_declarations',
+  description: 'List accessibility nutrition label declarations for an app, one per device family',
+  schema: z.object({
+    appId: z.string().describe('App ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/apps/${args.appId}/accessibilityDeclarations`);
+  },
+};
+
+const createAccessibilityDeclaration: ToolDef = {
+  name: 'apple_create_accessibility_declaration',
+  description:
+    'Create an accessibility nutrition label declaration for an app on a specific device family (Accessibility Nutrition Labels)',
+  schema: z.object({
+    appId: z.string().describe('App ID'),
+    deviceFamily: z.enum(['IPHONE', 'IPAD', 'APPLE_TV', 'APPLE_WATCH', 'MAC', 'VISION']).describe('Device family this declaration applies to'),
+    ...accessibilityBooleanFields,
+  }),
+  handler: async (client, args) => {
+    const { appId, ...attributes } = args;
+    return client.request('/accessibilityDeclarations', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'accessibilityDeclarations',
+          attributes,
+          relationships: {
+            app: { data: { type: 'apps', id: appId } },
+          },
+        },
+      },
+    });
+  },
+};
+
+const updateAccessibilityDeclaration: ToolDef = {
+  name: 'apple_update_accessibility_declaration',
+  description: 'Update an existing accessibility nutrition label declaration',
+  schema: z.object({
+    declarationId: z.string().describe('Accessibility Declaration ID'),
+    ...accessibilityBooleanFields,
+  }),
+  handler: async (client, args) => {
+    const { declarationId, ...attributes } = args;
+    return client.request(`/accessibilityDeclarations/${declarationId}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'accessibilityDeclarations',
+          id: declarationId,
+          attributes,
+        },
+      },
+    });
+  },
+};
+
+const deleteAccessibilityDeclaration: ToolDef = {
+  name: 'apple_delete_accessibility_declaration',
+  description: 'Delete an accessibility nutrition label declaration',
+  schema: z.object({
+    declarationId: z.string().describe('Accessibility Declaration ID'),
+  }),
+  handler: async (client, args) => {
+    await client.request(`/accessibilityDeclarations/${args.declarationId}`, { method: 'DELETE' });
+    return { success: true };
+  },
+};
+
+// ═══════════════════════════════════════════
+// 20. Price Points (for offer code / win-back offer prices)
+// ═══════════════════════════════════════════
+
+const getSubscriptionPricePoints: ToolDef = {
+  name: 'apple_get_subscription_price_points',
+  description:
+    'List available price points for a subscription, per territory. Use the returned IDs (with a territory ID) to build the prices for apple_create_subscription_offer_code.',
+  schema: z.object({
+    subscriptionId: z.string().describe('Subscription ID'),
+    territoryFilter: z.string().optional().describe('Filter by territory ID, e.g. USA'),
+  }),
+  handler: async (client, args) => {
+    const params: Record<string, string> = { include: 'territory' };
+    if (args.territoryFilter) params['filter[territory]'] = args.territoryFilter;
+    return client.request(`/subscriptions/${args.subscriptionId}/pricePoints`, { params });
+  },
+};
+
+const getIAPPricePoints: ToolDef = {
+  name: 'apple_get_iap_price_points',
+  description:
+    'List available price points for an in-app purchase, per territory. Use the returned IDs (with a territory ID) to build the prices for apple_create_iap_offer_code.',
+  schema: z.object({
+    iapId: z.string().describe('In-App Purchase ID'),
+    territoryFilter: z.string().optional().describe('Filter by territory ID, e.g. USA'),
+  }),
+  handler: async (client, args) => {
+    const params: Record<string, string> = { include: 'territory' };
+    if (args.territoryFilter) params['filter[territory]'] = args.territoryFilter;
+    return client.request(`${V2_BASE}/inAppPurchases/${args.iapId}/pricePoints`, { params });
+  },
+};
+
+// ═══════════════════════════════════════════
+// 21. Subscription & IAP Offer Codes
+// ═══════════════════════════════════════════
+
+const offerPriceEntry = z.object({
+  territoryId: z.string().describe('Territory ID, e.g. USA'),
+  pricePointId: z.string().describe('Price point ID from apple_get_subscription_price_points / apple_get_iap_price_points'),
+});
+
+const listSubscriptionOfferCodes: ToolDef = {
+  name: 'apple_list_subscription_offer_codes',
+  description: 'List custom/one-time-use offer codes configured for a subscription',
+  schema: z.object({
+    subscriptionId: z.string().describe('Subscription ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/subscriptions/${args.subscriptionId}/offerCodes`);
+  },
+};
+
+const getSubscriptionOfferCode: ToolDef = {
+  name: 'apple_get_subscription_offer_code',
+  description: 'Get details of a subscription offer code',
+  schema: z.object({
+    offerCodeId: z.string().describe('Subscription Offer Code ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/subscriptionOfferCodes/${args.offerCodeId}`);
+  },
+};
+
+const createSubscriptionOfferCode: ToolDef = {
+  name: 'apple_create_subscription_offer_code',
+  description:
+    'Create a subscription offer code (custom or one-time-use codes distributed outside the App Store). Requires per-territory prices — look them up first with apple_get_subscription_price_points.',
+  schema: z.object({
+    subscriptionId: z.string().describe('Subscription ID'),
+    name: z.string().describe('Internal reference name for the offer code'),
+    customerEligibilities: z.array(z.enum(['NEW', 'EXISTING', 'EXPIRED'])).describe('Which customers are eligible'),
+    offerEligibility: z.enum(['STACK_WITH_INTRO_OFFERS', 'REPLACE_INTRO_OFFERS']).describe('How this offer interacts with introductory offers'),
+    duration: z.enum(['THREE_DAYS', 'ONE_WEEK', 'TWO_WEEKS', 'ONE_MONTH', 'TWO_MONTHS', 'THREE_MONTHS', 'SIX_MONTHS', 'ONE_YEAR']).describe('Billing period duration of the offer'),
+    offerMode: z.enum(['PAY_AS_YOU_GO', 'PAY_UP_FRONT', 'FREE_TRIAL']).describe('Offer pricing mode'),
+    numberOfPeriods: z.number().describe('Number of billing periods the offer applies for'),
+    autoRenewEnabled: z.boolean().optional().describe('Whether the subscription auto-renews after the offer period'),
+    prices: z.array(offerPriceEntry).describe('Per-territory prices for the offer'),
+  }),
+  handler: async (client, args) => {
+    const { subscriptionId, prices, ...attributes } = args;
+    return client.request('/subscriptionOfferCodes', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'subscriptionOfferCodes',
+          attributes,
+          relationships: {
+            subscription: { data: { type: 'subscriptions', id: subscriptionId } },
+            prices: {
+              data: prices.map((p: z.infer<typeof offerPriceEntry>, i: number) => ({
+                type: 'subscriptionOfferCodePrices',
+                id: `price-${i}`,
+              })),
+            },
+          },
+        },
+        included: prices.map((p: z.infer<typeof offerPriceEntry>, i: number) => ({
+          type: 'subscriptionOfferCodePrices',
+          id: `price-${i}`,
+          relationships: {
+            territory: { data: { type: 'territories', id: p.territoryId } },
+            subscriptionPricePoint: { data: { type: 'subscriptionPricePoints', id: p.pricePointId } },
+          },
+        })),
+      },
+    });
+  },
+};
+
+const listIAPOfferCodes: ToolDef = {
+  name: 'apple_list_iap_offer_codes',
+  description: 'List custom/one-time-use offer codes configured for an in-app purchase',
+  schema: z.object({
+    iapId: z.string().describe('In-App Purchase ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`${V2_BASE}/inAppPurchases/${args.iapId}/offerCodes`);
+  },
+};
+
+const getIAPOfferCode: ToolDef = {
+  name: 'apple_get_iap_offer_code',
+  description: 'Get details of an in-app purchase offer code',
+  schema: z.object({
+    offerCodeId: z.string().describe('In-App Purchase Offer Code ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/inAppPurchaseOfferCodes/${args.offerCodeId}`);
+  },
+};
+
+const createIAPOfferCode: ToolDef = {
+  name: 'apple_create_iap_offer_code',
+  description:
+    'Create an offer code for a consumable/non-consumable/non-renewing-subscription in-app purchase. Requires per-territory prices — look them up first with apple_get_iap_price_points.',
+  schema: z.object({
+    iapId: z.string().describe('In-App Purchase ID'),
+    name: z.string().describe('Internal reference name for the offer code'),
+    customerEligibilities: z.array(z.enum(['NON_SPENDER', 'ACTIVE_SPENDER', 'CHURNED_SPENDER'])).describe('Which customers are eligible'),
+    prices: z.array(offerPriceEntry).describe('Per-territory prices for the offer'),
+  }),
+  handler: async (client, args) => {
+    const { iapId, prices, ...attributes } = args;
+    return client.request('/inAppPurchaseOfferCodes', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'inAppPurchaseOfferCodes',
+          attributes,
+          relationships: {
+            inAppPurchase: { data: { type: 'inAppPurchases', id: iapId } },
+            prices: {
+              data: prices.map((p: z.infer<typeof offerPriceEntry>, i: number) => ({
+                type: 'inAppPurchaseOfferPrices',
+                id: `price-${i}`,
+              })),
+            },
+          },
+        },
+        included: prices.map((p: z.infer<typeof offerPriceEntry>, i: number) => ({
+          type: 'inAppPurchaseOfferPrices',
+          id: `price-${i}`,
+          relationships: {
+            territory: { data: { type: 'territories', id: p.territoryId } },
+            pricePoint: { data: { type: 'inAppPurchasePricePoints', id: p.pricePointId } },
+          },
+        })),
+      },
+    });
+  },
+};
+
+// ═══════════════════════════════════════════
+// 22. Win-Back Offers
+// ═══════════════════════════════════════════
+
+const listWinBackOffers: ToolDef = {
+  name: 'apple_list_win_back_offers',
+  description: 'List win-back offers configured for a subscription (offers to bring back churned/expired subscribers)',
+  schema: z.object({
+    subscriptionId: z.string().describe('Subscription ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/subscriptions/${args.subscriptionId}/winBackOffers`);
+  },
+};
+
+const getWinBackOffer: ToolDef = {
+  name: 'apple_get_win_back_offer',
+  description: 'Get details of a win-back offer',
+  schema: z.object({
+    offerId: z.string().describe('Win-Back Offer ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/winBackOffers/${args.offerId}`);
+  },
+};
+
+// ═══════════════════════════════════════════
 // Export all tools
 // ═══════════════════════════════════════════
 
@@ -1293,4 +1587,13 @@ export const appleTools: ToolDef[] = [
   listIAP, createIAP, getIAP, deleteIAP,
   // Subscription Groups
   listSubscriptionGroups, createSubscriptionGroup, deleteSubscriptionGroup,
+  // Accessibility Declarations
+  listAccessibilityDeclarations, createAccessibilityDeclaration, updateAccessibilityDeclaration, deleteAccessibilityDeclaration,
+  // Price Points
+  getSubscriptionPricePoints, getIAPPricePoints,
+  // Offer Codes
+  listSubscriptionOfferCodes, getSubscriptionOfferCode, createSubscriptionOfferCode,
+  listIAPOfferCodes, getIAPOfferCode, createIAPOfferCode,
+  // Win-Back Offers
+  listWinBackOffers, getWinBackOffer,
 ];

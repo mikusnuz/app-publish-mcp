@@ -351,6 +351,60 @@ export class GoogleClient {
     return res.data;
   }
 
+  // ─── One-time Products (monetization) ───
+  async listOneTimeProducts(packageName: string) {
+    const res = await this.publisher.monetization.onetimeproducts.list({ packageName });
+    return {
+      oneTimeProducts: res.data.oneTimeProducts ?? [],
+      nextPageToken: res.data.nextPageToken ?? null,
+    };
+  }
+
+  async getOneTimeProduct(packageName: string, productId: string) {
+    const res = await this.publisher.monetization.onetimeproducts.get({ packageName, productId });
+    return res.data;
+  }
+
+  async upsertOneTimeProduct(
+    packageName: string,
+    productId: string,
+    product: androidpublisher_v3.Schema$OneTimeProduct,
+    opts: { allowMissing: boolean; updateMask?: string; regionsVersionVersion?: string },
+  ) {
+    const params: any = {
+      packageName,
+      productId,
+      allowMissing: opts.allowMissing,
+      requestBody: product,
+    };
+    if (opts.updateMask) params.updateMask = opts.updateMask;
+    if (opts.regionsVersionVersion) params['regionsVersion.version'] = opts.regionsVersionVersion;
+    const res = await this.publisher.monetization.onetimeproducts.patch(params);
+    return res.data;
+  }
+
+  async deleteOneTimeProduct(packageName: string, productId: string) {
+    await this.publisher.monetization.onetimeproducts.delete({ packageName, productId });
+  }
+
+  async setPurchaseOptionState(
+    packageName: string,
+    productId: string,
+    purchaseOptionId: string,
+    action: 'activate' | 'deactivate',
+  ) {
+    const request =
+      action === 'activate'
+        ? { activatePurchaseOptionRequest: { packageName, productId, purchaseOptionId } }
+        : { deactivatePurchaseOptionRequest: { packageName, productId, purchaseOptionId } };
+    const res = await this.publisher.monetization.onetimeproducts.purchaseOptions.batchUpdateStates({
+      packageName,
+      productId,
+      requestBody: { requests: [request] },
+    });
+    return res.data;
+  }
+
   // ─── Reviews ───
   async listReviews(
     packageName: string,

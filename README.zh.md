@@ -8,7 +8,7 @@
 
 ## 功能特性
 
-### Apple App Store Connect（56个工具）
+### Apple App Store Connect（70个工具）
 | 类别 | 工具 |
 |----------|-------|
 | 应用管理 | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
@@ -31,8 +31,12 @@
 | TestFlight 测试员 | `apple_list_beta_testers`, `apple_invite_beta_tester`, `apple_delete_beta_tester` |
 | 应用内购买 | `apple_list_iap`, `apple_create_iap`, `apple_get_iap`, `apple_delete_iap` |
 | 订阅组 | `apple_list_subscription_groups`, `apple_create_subscription_group`, `apple_delete_subscription_group` |
+| 无障碍声明 | `apple_list_accessibility_declarations`, `apple_create_accessibility_declaration`, `apple_update_accessibility_declaration`, `apple_delete_accessibility_declaration` |
+| 价格点 | `apple_get_subscription_price_points`, `apple_get_iap_price_points` |
+| 优惠码 | `apple_list_subscription_offer_codes`, `apple_get_subscription_offer_code`, `apple_create_subscription_offer_code`, `apple_list_iap_offer_codes`, `apple_get_iap_offer_code`, `apple_create_iap_offer_code` |
+| 挽回优惠 | `apple_list_win_back_offers`, `apple_get_win_back_offer` |
 
-### Google Play Console（35个工具）
+### Google Play Console（45个工具）
 | 类别 | 工具 |
 |----------|-------|
 | 编辑生命周期 | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -45,7 +49,8 @@
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | 评论 | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | 应用内商品 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
-| 订阅 | `google_list_subscriptions`, `google_get_subscription`, `google_archive_subscription` |
+| 订阅 | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_archive_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
+| 一次性商品 | `google_list_one_time_products`, `google_get_one_time_product`, `google_create_one_time_product`, `google_update_one_time_product`, `google_delete_one_time_product`, `google_activate_purchase_option`, `google_deactivate_purchase_option` |
 
 ### 提示词 (2个)
 | 提示词 | 描述 |
