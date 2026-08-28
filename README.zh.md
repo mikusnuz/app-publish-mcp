@@ -8,10 +8,10 @@
 
 ## 功能特性
 
-### Apple App Store Connect（70个工具）
+### Apple App Store Connect（72个工具）
 | 类别 | 工具 |
 |----------|-------|
-| 应用管理 | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
+| 应用管理 | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
 | Bundle ID | `apple_list_bundle_ids`, `apple_create_bundle_id` |
 | Bundle ID 功能 | `apple_list_bundle_id_capabilities`, `apple_enable_capability`, `apple_disable_capability` |
 | 版本管理 | `apple_list_versions`, `apple_create_version` |
@@ -22,7 +22,7 @@
 | 年龄分级 | `apple_get_age_rating`, `apple_update_age_rating` |
 | 审核信息 | `apple_update_review_detail` |
 | 提交 | `apple_submit_for_review`, `apple_cancel_submission` |
-| 价格 | `apple_get_pricing`, `apple_set_price`, `apple_list_availability` |
+| 价格 | `apple_get_pricing`, `apple_list_app_price_points`, `apple_set_price`, `apple_list_availability` |
 | 用户评论 | `apple_list_reviews`, `apple_respond_to_review` |
 | 证书 | `apple_list_certificates`, `apple_create_certificate`, `apple_revoke_certificate` |
 | 描述文件 | `apple_list_profiles`, `apple_create_profile`, `apple_delete_profile` |
@@ -36,7 +36,9 @@
 | 优惠码 | `apple_list_subscription_offer_codes`, `apple_get_subscription_offer_code`, `apple_create_subscription_offer_code`, `apple_list_iap_offer_codes`, `apple_get_iap_offer_code`, `apple_create_iap_offer_code` |
 | 挽回优惠 | `apple_list_win_back_offers`, `apple_get_win_back_offer` |
 
-### Google Play Console（45个工具）
+`apple_get_pricing` 会读取手动价格和自动价格的所有分页。`apple_set_price` 会提交完整的手动价格计划，因此请包含所有需要保留的当前及未来手动价格；遗漏的条目可能会从计划中移除。
+
+### Google Play Console（44个工具）
 | 类别 | 工具 |
 |----------|-------|
 | 编辑生命周期 | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -49,7 +51,7 @@
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | 评论 | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | 应用内商品 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
-| 订阅 | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_archive_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
+| 订阅 | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
 | 一次性商品 | `google_list_one_time_products`, `google_get_one_time_product`, `google_create_one_time_product`, `google_update_one_time_product`, `google_delete_one_time_product`, `google_activate_purchase_option`, `google_deactivate_purchase_option` |
 
 ### 提示词 (2个)
@@ -96,6 +98,7 @@ cp .env.example .env
 编辑 `.env`:
 ```
 APPLE_KEY_ID=YOUR_KEY_ID
+APPLE_KEY_TYPE=TEAM
 APPLE_ISSUER_ID=YOUR_ISSUER_ID
 APPLE_P8_PATH=/path/to/AuthKey.p8
 GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
@@ -113,6 +116,7 @@ GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
       "args": ["/path/to/app-publish-mcp/dist/index.js"],
       "env": {
         "APPLE_KEY_ID": "YOUR_KEY_ID",
+        "APPLE_KEY_TYPE": "TEAM",
         "APPLE_ISSUER_ID": "YOUR_ISSUER_ID",
         "APPLE_P8_PATH": "/path/to/AuthKey.p8",
         "GOOGLE_SERVICE_ACCOUNT_PATH": "/path/to/service-account.json"

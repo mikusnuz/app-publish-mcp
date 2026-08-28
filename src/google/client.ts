@@ -1,6 +1,10 @@
 import { google, androidpublisher_v3 } from 'googleapis';
 import { GoogleAuth, OAuth2Client } from 'google-auth-library';
-import { readFileSync } from 'fs';
+import { createReadStream } from 'node:fs';
+import { extname } from 'node:path';
+
+export type ChangesInReviewBehavior = 'CANCEL_IN_REVIEW_AND_SUBMIT' | 'ERROR_IF_IN_REVIEW';
+const UPLOAD_TIMEOUT_MS = 15 * 60_000;
 
 export interface GoogleClientOptions {
   serviceAccountPath?: string;
@@ -31,6 +35,12 @@ export class GoogleClient {
     this.publisher = google.androidpublisher({
       version: 'v3',
       auth: auth as any,
+      timeout: 30_000,
+      retry: true,
+      retryConfig: {
+        retry: 2,
+        noResponseRetries: 2,
+      },
     });
   }
 
@@ -44,8 +54,21 @@ export class GoogleClient {
     return res.data.id!;
   }
 
-  async commitEdit(packageName: string, editId: string): Promise<void> {
-    await this.publisher.edits.commit({ packageName, editId });
+  async commitEdit(
+    packageName: string,
+    editId: string,
+    opts: {
+      changesInReviewBehavior: ChangesInReviewBehavior;
+      changesNotSentForReview?: boolean;
+    },
+  ) {
+    const res = await this.publisher.edits.commit({
+      packageName,
+      editId,
+      changesInReviewBehavior: opts.changesInReviewBehavior,
+      changesNotSentForReview: opts.changesNotSentForReview,
+    });
+    return res.data;
   }
 
   async validateEdit(packageName: string, editId: string): Promise<void> {
@@ -90,7 +113,7 @@ export class GoogleClient {
     language: string,
     listing: { title?: string; shortDescription?: string; fullDescription?: string; video?: string },
   ) {
-    const res = await this.publisher.edits.listings.update({
+    const res = await this.publisher.edits.listings.patch({
       packageName, editId, language,
       requestBody: listing,
     });
@@ -147,11 +170,20 @@ export class GoogleClient {
     imageType: string,
     imagePath: string,
   ) {
-    const media = { mimeType: 'image/png', body: readFileSync(imagePath) };
+    const extension = extname(imagePath).toLowerCase();
+    const mimeType = extension === '.png'
+      ? 'image/png'
+      : extension === '.jpg' || extension === '.jpeg'
+        ? 'image/jpeg'
+        : null;
+    if (!mimeType) {
+      throw new Error('Google Play images must use a .png, .jpg, or .jpeg file extension');
+    }
+    const media = { mimeType, body: createReadStream(imagePath) };
     const res = await this.publisher.edits.images.upload({
       packageName, editId, language, imageType,
       media,
-    } as any);
+    } as any, { timeout: UPLOAD_TIMEOUT_MS, retry: false });
     return res.data;
   }
 
@@ -222,31 +254,34 @@ export class GoogleClient {
   async uploadBundle(packageName: string, editId: string, bundlePath: string) {
     const media = {
       mimeType: 'application/octet-stream',
-      body: readFileSync(bundlePath),
+      body: createReadStream(bundlePath),
     };
     const res = await this.publisher.edits.bundles.upload({
       packageName, editId,
       media,
-    } as any);
+    } as any, { timeout: UPLOAD_TIMEOUT_MS, retry: false });
     return res.data;
   }
 
   async uploadApk(packageName: string, editId: string, apkPath: string) {
     const media = {
       mimeType: 'application/vnd.android.package-archive',
-      body: readFileSync(apkPath),
+      body: createReadStream(apkPath),
     };
     const res = await this.publisher.edits.apks.upload({
       packageName, editId,
       media,
-    } as any);
+    } as any, { timeout: UPLOAD_TIMEOUT_MS, retry: false });
     return res.data;
   }
 
   // ─── In-App Products ───
-  async listInAppProducts(packageName: string) {
-    const res = await this.publisher.inappproducts.list({ packageName });
-    return res.data.inappproduct ?? [];
+  async listInAppProducts(packageName: string, token?: string) {
+    const res = await this.publisher.inappproducts.list({ packageName, token });
+    return {
+      inAppProducts: res.data.inappproduct ?? [],
+      nextPageToken: res.data.tokenPagination?.nextPageToken ?? null,
+    };
   }
 
   async getInAppProduct(packageName: string, sku: string) {
@@ -275,9 +310,19 @@ export class GoogleClient {
   }
 
   // ─── Subscriptions (monetization) ───
-  async listSubscriptions(packageName: string) {
-    const res = await this.publisher.monetization.subscriptions.list({ packageName });
-    return res.data.subscriptions ?? [];
+  async listSubscriptions(
+    packageName: string,
+    opts: { pageSize?: number; pageToken?: string } = {},
+  ) {
+    const res = await this.publisher.monetization.subscriptions.list({
+      packageName,
+      pageSize: opts.pageSize,
+      pageToken: opts.pageToken,
+    });
+    return {
+      subscriptions: res.data.subscriptions ?? [],
+      nextPageToken: res.data.nextPageToken ?? null,
+    };
   }
 
   async getSubscription(packageName: string, productId: string) {
@@ -318,14 +363,6 @@ export class GoogleClient {
     return res.data;
   }
 
-  async archiveSubscription(packageName: string, productId: string) {
-    const res = await this.publisher.monetization.subscriptions.archive({
-      packageName, productId,
-      requestBody: {},
-    });
-    return res.data;
-  }
-
   // ─── Subscription Base Plans ───
   async activateBasePlan(
     packageName: string,
@@ -352,8 +389,15 @@ export class GoogleClient {
   }
 
   // ─── One-time Products (monetization) ───
-  async listOneTimeProducts(packageName: string) {
-    const res = await this.publisher.monetization.onetimeproducts.list({ packageName });
+  async listOneTimeProducts(
+    packageName: string,
+    opts: { pageSize?: number; pageToken?: string } = {},
+  ) {
+    const res = await this.publisher.monetization.onetimeproducts.list({
+      packageName,
+      pageSize: opts.pageSize,
+      pageToken: opts.pageToken,
+    });
     return {
       oneTimeProducts: res.data.oneTimeProducts ?? [],
       nextPageToken: res.data.nextPageToken ?? null,
@@ -369,7 +413,7 @@ export class GoogleClient {
     packageName: string,
     productId: string,
     product: androidpublisher_v3.Schema$OneTimeProduct,
-    opts: { allowMissing: boolean; updateMask?: string; regionsVersionVersion?: string },
+    opts: { allowMissing: boolean; updateMask: string; regionsVersionVersion?: string },
   ) {
     const params: androidpublisher_v3.Params$Resource$Monetization$Onetimeproducts$Patch = {
       packageName,
@@ -377,7 +421,7 @@ export class GoogleClient {
       allowMissing: opts.allowMissing,
       requestBody: product,
     };
-    if (opts.updateMask) params.updateMask = opts.updateMask;
+    params.updateMask = opts.updateMask;
     if (opts.regionsVersionVersion) params['regionsVersion.version'] = opts.regionsVersionVersion;
     const res = await this.publisher.monetization.onetimeproducts.patch(params);
     return res.data;

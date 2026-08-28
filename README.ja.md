@@ -8,10 +8,10 @@
 
 ## 機能
 
-### Apple App Store Connect (70ツール)
+### Apple App Store Connect (72ツール)
 | カテゴリ | ツール |
 |----------|-------|
-| アプリ管理 | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
+| アプリ管理 | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
 | Bundle ID | `apple_list_bundle_ids`, `apple_create_bundle_id` |
 | Bundle ID 機能 | `apple_list_bundle_id_capabilities`, `apple_enable_capability`, `apple_disable_capability` |
 | バージョン | `apple_list_versions`, `apple_create_version` |
@@ -22,7 +22,7 @@
 | 年齢制限 | `apple_get_age_rating`, `apple_update_age_rating` |
 | レビュー情報 | `apple_update_review_detail` |
 | 申請 | `apple_submit_for_review`, `apple_cancel_submission` |
-| 価格設定 | `apple_get_pricing`, `apple_set_price`, `apple_list_availability` |
+| 価格設定 | `apple_get_pricing`, `apple_list_app_price_points`, `apple_set_price`, `apple_list_availability` |
 | カスタマーレビュー | `apple_list_reviews`, `apple_respond_to_review` |
 | 証明書 | `apple_list_certificates`, `apple_create_certificate`, `apple_revoke_certificate` |
 | プロビジョニングプロファイル | `apple_list_profiles`, `apple_create_profile`, `apple_delete_profile` |
@@ -36,7 +36,9 @@
 | オファーコード | `apple_list_subscription_offer_codes`, `apple_get_subscription_offer_code`, `apple_create_subscription_offer_code`, `apple_list_iap_offer_codes`, `apple_get_iap_offer_code`, `apple_create_iap_offer_code` |
 | ウィンバックオファー | `apple_list_win_back_offers`, `apple_get_win_back_offer` |
 
-### Google Play Console (45ツール)
+`apple_get_pricing` は手動価格と自動価格の全ページを取得します。`apple_set_price` は手動価格スケジュール全体を送信するため、維持する現在および将来の手動価格をすべて含めてください。省略した項目はスケジュールから削除される可能性があります。
+
+### Google Play Console (44ツール)
 | カテゴリ | ツール |
 |----------|-------|
 | 編集ライフサイクル | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -49,7 +51,7 @@
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | レビュー | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | アプリ内商品 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
-| サブスクリプション | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_archive_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
+| サブスクリプション | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
 | 単発商品 | `google_list_one_time_products`, `google_get_one_time_product`, `google_create_one_time_product`, `google_update_one_time_product`, `google_delete_one_time_product`, `google_activate_purchase_option`, `google_deactivate_purchase_option` |
 
 ### プロンプト (2個)
@@ -96,6 +98,7 @@ cp .env.example .env
 `.env`を編集:
 ```
 APPLE_KEY_ID=YOUR_KEY_ID
+APPLE_KEY_TYPE=TEAM
 APPLE_ISSUER_ID=YOUR_ISSUER_ID
 APPLE_P8_PATH=/path/to/AuthKey.p8
 GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
@@ -113,6 +116,7 @@ GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
       "args": ["/path/to/app-publish-mcp/dist/index.js"],
       "env": {
         "APPLE_KEY_ID": "YOUR_KEY_ID",
+        "APPLE_KEY_TYPE": "TEAM",
         "APPLE_ISSUER_ID": "YOUR_ISSUER_ID",
         "APPLE_P8_PATH": "/path/to/AuthKey.p8",
         "GOOGLE_SERVICE_ACCOUNT_PATH": "/path/to/service-account.json"

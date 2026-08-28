@@ -22,10 +22,10 @@ Use this MCP when you need to:
 
 ## Features
 
-### Apple App Store Connect (70 tools)
+### Apple App Store Connect (72 tools)
 | Category | Tools |
 |----------|-------|
-| App Management | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
+| App Management | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
 | Bundle IDs | `apple_list_bundle_ids`, `apple_create_bundle_id` |
 | Bundle ID Capabilities | `apple_list_bundle_id_capabilities`, `apple_enable_capability`, `apple_disable_capability` |
 | Versions | `apple_list_versions`, `apple_create_version` |
@@ -36,7 +36,7 @@ Use this MCP when you need to:
 | Age Rating | `apple_get_age_rating`, `apple_update_age_rating` |
 | Review Info | `apple_update_review_detail` |
 | Submission | `apple_submit_for_review`, `apple_cancel_submission` |
-| Pricing | `apple_get_pricing`, `apple_set_price`, `apple_list_availability` |
+| Pricing | `apple_get_pricing`, `apple_list_app_price_points`, `apple_set_price`, `apple_list_availability` |
 | Customer Reviews | `apple_list_reviews`, `apple_respond_to_review` |
 | Certificates | `apple_list_certificates`, `apple_create_certificate`, `apple_revoke_certificate` |
 | Provisioning Profiles | `apple_list_profiles`, `apple_create_profile`, `apple_delete_profile` |
@@ -50,7 +50,9 @@ Use this MCP when you need to:
 | Offer Codes | `apple_list_subscription_offer_codes`, `apple_get_subscription_offer_code`, `apple_create_subscription_offer_code`, `apple_list_iap_offer_codes`, `apple_get_iap_offer_code`, `apple_create_iap_offer_code` |
 | Win-Back Offers | `apple_list_win_back_offers`, `apple_get_win_back_offer` |
 
-### Google Play Console (45 tools)
+`apple_get_pricing` follows all manual and automatic price pages. `apple_set_price` submits the complete manual price schedule, so include every current or future manual entry that must remain; omitted entries may be removed from the schedule.
+
+### Google Play Console (44 tools)
 | Category | Tools |
 |----------|-------|
 | Edit Lifecycle | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -63,12 +65,12 @@ Use this MCP when you need to:
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | Reviews¹ | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | In-App Products | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
-| Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_archive_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
+| Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
 | One-time Products² | `google_list_one_time_products`, `google_get_one_time_product`, `google_create_one_time_product`, `google_update_one_time_product`, `google_delete_one_time_product`, `google_activate_purchase_option`, `google_deactivate_purchase_option` |
 
 ¹ If `google_list_reviews` returns an empty array for an app that has visible reviews in Play Console, first check that the linked service account has the **"Reply to reviews"** account permission (Play Console → Users and permissions) — the API does not raise a distinct error for a missing permission, it just returns no results. Also note the endpoint only surfaces recent reviews; use `pageToken` to page through more.
 
-² One-time Products (`monetization.onetimeproducts`) is Google Play's newer purchase model for buy/rent items, distinct from the older `inappproducts` API. Purchase options are created active by default; use `google_deactivate_purchase_option` to pull one down without deleting the product.
+² One-time Products (`monetization.onetimeproducts`) is Google Play's newer purchase model for buy/rent items, distinct from the older `inappproducts` API. Inspect each returned purchase-option state and use the dedicated activate/deactivate tools to change it.
 
 ### Prompts (2)
 | Prompt | Description |
@@ -96,7 +98,7 @@ npm run build
 1. Go to [App Store Connect > Keys](https://appstoreconnect.apple.com/access/integrations/api)
 2. Create an API Key with **App Manager** role
 3. Download the `.p8` file
-4. Note the **Key ID** and **Issuer ID**
+4. Note the **Key ID** and, for team keys, the **Issuer ID**. For an individual key, set `APPLE_KEY_TYPE=INDIVIDUAL` and omit the issuer ID.
 
 ### 3. Google Credentials
 
@@ -114,6 +116,7 @@ cp .env.example .env
 Edit `.env`:
 ```
 APPLE_KEY_ID=YOUR_KEY_ID
+APPLE_KEY_TYPE=TEAM
 APPLE_ISSUER_ID=YOUR_ISSUER_ID
 APPLE_P8_PATH=/path/to/AuthKey.p8
 GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
@@ -131,6 +134,7 @@ Add to `~/.claude/settings.local.json`:
       "args": ["/path/to/app-publish-mcp/dist/index.js"],
       "env": {
         "APPLE_KEY_ID": "YOUR_KEY_ID",
+        "APPLE_KEY_TYPE": "TEAM",
         "APPLE_ISSUER_ID": "YOUR_ISSUER_ID",
         "APPLE_P8_PATH": "/path/to/AuthKey.p8",
         "GOOGLE_SERVICE_ACCOUNT_PATH": "/path/to/service-account.json"
@@ -162,7 +166,7 @@ Add to `~/.claude/settings.local.json`:
 2. google_update_details → update contact info
 3. google_update_listing → update store listing
 4. google_upload_bundle → upload .aab file
-5. google_create_release → create release on production track
+5. google_create_release → select the complete versionCodes set and create the release on production
 6. google_validate_edit → check for errors
 7. google_commit_edit → publish changes
 ```
@@ -186,7 +190,8 @@ Add to `~/.claude/settings.local.json`:
    it becomes purchasable in the Play Store.
 3. google_deactivate_subscription_base_plan → pause sales without deleting
    the plan.
-4. google_archive_subscription → archive the subscription when retired.
+4. There is no supported subscription archive operation. Keep all base plans
+   deactivated when retiring a previously published subscription.
 ```
 
 Example arguments for `google_create_subscription`:

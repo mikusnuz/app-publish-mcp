@@ -27,13 +27,15 @@ let googleClient: GoogleClient | null = null;
 const appleKeyId = process.env.APPLE_KEY_ID;
 const appleIssuerId = process.env.APPLE_ISSUER_ID;
 const appleP8Path = process.env.APPLE_P8_PATH;
+const appleKeyType = process.env.APPLE_KEY_TYPE === 'INDIVIDUAL' ? 'INDIVIDUAL' : 'TEAM';
 
-if (appleKeyId && appleIssuerId && appleP8Path) {
+if (appleKeyId && appleP8Path && (appleKeyType === 'INDIVIDUAL' || appleIssuerId)) {
   appleClient = new AppleClient({
     keyId: appleKeyId,
     issuerId: appleIssuerId,
     p8Path: appleP8Path,
     vendorNumber: process.env.APPLE_VENDOR_NUMBER,
+    keyType: appleKeyType,
   });
 }
 
@@ -60,7 +62,7 @@ for (const tool of appleTools) {
   server.tool(tool.name, tool.description, tool.schema.shape, async (args: any) => {
     if (!appleClient) {
       return {
-        content: [{ type: 'text' as const, text: 'Apple client not configured. Set APPLE_KEY_ID, APPLE_ISSUER_ID, APPLE_P8_PATH env vars.' }],
+        content: [{ type: 'text' as const, text: 'Apple client not configured. Set APPLE_KEY_ID and APPLE_P8_PATH, plus APPLE_ISSUER_ID for team keys. Set APPLE_KEY_TYPE=INDIVIDUAL for an individual key.' }],
         isError: true,
       };
     }
@@ -212,6 +214,7 @@ server.resource(
         connected: !!appleClient,
         keyId: appleKeyId ? `${appleKeyId.slice(0, 4)}...` : null,
         issuerId: appleIssuerId ? `${appleIssuerId.slice(0, 8)}...` : null,
+        keyType: appleKeyType,
         vendorNumber: process.env.APPLE_VENDOR_NUMBER ? 'set' : null,
       },
       google: {

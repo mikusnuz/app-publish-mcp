@@ -1,15 +1,30 @@
 import jwt from 'jsonwebtoken';
 import { readFileSync } from 'fs';
 
-interface AppleConfig {
+export interface AppleConfig {
   keyId: string;
-  issuerId: string;
+  issuerId?: string;
   p8Path: string;
   vendorNumber?: string;
+  keyType?: 'TEAM' | 'INDIVIDUAL';
+}
+
+export class AppleApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly method: string,
+    public readonly path: string,
+    public readonly responseBody: string,
+  ) {
+    super(message);
+    this.name = 'AppleApiError';
+  }
 }
 
 export class AppleClient {
   private config: AppleConfig;
+  private baseOrigin = 'https://api.appstoreconnect.apple.com';
   private baseUrl = 'https://api.appstoreconnect.apple.com/v1';
   private token: string | null = null;
   private tokenExp = 0;
@@ -23,12 +38,21 @@ export class AppleClient {
     if (this.token && now < this.tokenExp - 60) return this.token;
 
     const privateKey = readFileSync(this.config.p8Path, 'utf8');
-    const payload = {
-      iss: this.config.issuerId,
+    const keyType = this.config.keyType ?? 'TEAM';
+    if (keyType === 'TEAM' && !this.config.issuerId) {
+      throw new Error('Apple team API keys require an issuerId');
+    }
+
+    const payload: Record<string, string | number> = {
       iat: now,
       exp: now + 20 * 60, // 20 minutes
       aud: 'appstoreconnect-v1',
     };
+    if (keyType === 'INDIVIDUAL') {
+      payload.sub = 'user';
+    } else {
+      payload.iss = this.config.issuerId!;
+    }
 
     this.token = jwt.sign(payload, privateKey, {
       algorithm: 'ES256',
@@ -47,28 +71,61 @@ export class AppleClient {
     } = {},
   ): Promise<T> {
     const { method = 'GET', body, params } = options;
-    let url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
+    let url = path.startsWith('http')
+      ? path
+        : /^\/v\d+\//.test(path)
+        ? `${this.baseOrigin}${path}`
+        : `${this.baseUrl}${path}`;
     if (params) {
-      const qs = new URLSearchParams(params).toString();
-      url += `?${qs}`;
+      const parsedUrl = new URL(url);
+      for (const [name, value] of Object.entries(params)) {
+        parsedUrl.searchParams.set(name, value);
+      }
+      url = parsedUrl.toString();
     }
 
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.getToken()}`,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    const maxAttempts = method === 'GET' ? 3 : 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const res = await fetch(url, {
+          method,
+          headers: {
+            Authorization: `Bearer ${this.getToken()}`,
+            'Content-Type': 'application/json',
+          },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(30_000),
+        });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Apple API ${method} ${path} → ${res.status}: ${text}`);
+        if (!res.ok) {
+          const text = await res.text();
+          const retryable = res.status === 429 || res.status >= 500;
+          if (retryable && attempt < maxAttempts) {
+            const retryAfter = Number(res.headers.get('retry-after'));
+            const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+              ? Math.min(retryAfter * 1_000, 30_000)
+              : 500 * 2 ** (attempt - 1);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            continue;
+          }
+          throw new AppleApiError(
+            `Apple API ${method} ${path} → ${res.status}: ${text}`,
+            res.status,
+            method,
+            path,
+            text,
+          );
+        }
+
+        if (res.status === 204) return {} as T;
+        return await res.json() as T;
+      } catch (error) {
+        if (error instanceof AppleApiError || attempt === maxAttempts) throw error;
+        await new Promise(resolve => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
+      }
     }
 
-    if (res.status === 204) return {} as T;
-    return res.json() as Promise<T>;
+    throw new Error(`Apple API ${method} ${path} failed after retries`);
   }
 
   async upload(url: string, filePath: string, contentType: string): Promise<any> {
@@ -80,6 +137,7 @@ export class AppleClient {
         'Content-Type': contentType,
       },
       body: data,
+      signal: AbortSignal.timeout(15 * 60_000),
     });
 
     if (!res.ok) {
@@ -117,6 +175,7 @@ export class AppleClient {
       method: operation.method,
       headers,
       body: slice,
+      signal: AbortSignal.timeout(15 * 60_000),
     });
 
     if (!res.ok) {

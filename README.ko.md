@@ -8,10 +8,10 @@
 
 ## 기능
 
-### Apple App Store Connect (70개 도구)
+### Apple App Store Connect (72개 도구)
 | 카테고리 | 도구 |
 |----------|-------|
-| 앱 관리 | `apple_list_apps`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
+| 앱 관리 | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
 | Bundle ID | `apple_list_bundle_ids`, `apple_create_bundle_id` |
 | Bundle ID 기능 | `apple_list_bundle_id_capabilities`, `apple_enable_capability`, `apple_disable_capability` |
 | 버전 | `apple_list_versions`, `apple_create_version` |
@@ -22,7 +22,7 @@
 | 연령 등급 | `apple_get_age_rating`, `apple_update_age_rating` |
 | 리뷰 정보 | `apple_update_review_detail` |
 | 제출 | `apple_submit_for_review`, `apple_cancel_submission` |
-| 가격 | `apple_get_pricing`, `apple_set_price`, `apple_list_availability` |
+| 가격 | `apple_get_pricing`, `apple_list_app_price_points`, `apple_set_price`, `apple_list_availability` |
 | 고객 리뷰 | `apple_list_reviews`, `apple_respond_to_review` |
 | 인증서 | `apple_list_certificates`, `apple_create_certificate`, `apple_revoke_certificate` |
 | 프로비저닝 프로파일 | `apple_list_profiles`, `apple_create_profile`, `apple_delete_profile` |
@@ -36,7 +36,9 @@
 | 오퍼 코드 | `apple_list_subscription_offer_codes`, `apple_get_subscription_offer_code`, `apple_create_subscription_offer_code`, `apple_list_iap_offer_codes`, `apple_get_iap_offer_code`, `apple_create_iap_offer_code` |
 | 윈백 오퍼 | `apple_list_win_back_offers`, `apple_get_win_back_offer` |
 
-### Google Play Console (45개 도구)
+`apple_get_pricing`은 수동·자동 가격의 모든 페이지를 조회합니다. `apple_set_price`는 전체 수동 가격 일정을 제출하므로 유지해야 할 현재·향후 수동 가격 항목을 모두 포함하세요. 누락한 항목은 일정에서 제거될 수 있습니다.
+
+### Google Play Console (44개 도구)
 | 카테고리 | 도구 |
 |----------|-------|
 | 편집 생명주기 | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -49,7 +51,7 @@
 | Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
 | 리뷰 | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | 인앱 상품 | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
-| 구독 | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_archive_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
+| 구독 | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
 | 일회성 상품 | `google_list_one_time_products`, `google_get_one_time_product`, `google_create_one_time_product`, `google_update_one_time_product`, `google_delete_one_time_product`, `google_activate_purchase_option`, `google_deactivate_purchase_option` |
 
 ### 프롬프트 (2개)
@@ -96,6 +98,7 @@ cp .env.example .env
 `.env` 파일을 편집합니다:
 ```
 APPLE_KEY_ID=YOUR_KEY_ID
+APPLE_KEY_TYPE=TEAM
 APPLE_ISSUER_ID=YOUR_ISSUER_ID
 APPLE_P8_PATH=/path/to/AuthKey.p8
 GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
@@ -113,6 +116,7 @@ GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
       "args": ["/path/to/app-publish-mcp/dist/index.js"],
       "env": {
         "APPLE_KEY_ID": "YOUR_KEY_ID",
+        "APPLE_KEY_TYPE": "TEAM",
         "APPLE_ISSUER_ID": "YOUR_ISSUER_ID",
         "APPLE_P8_PATH": "/path/to/AuthKey.p8",
         "GOOGLE_SERVICE_ACCOUNT_PATH": "/path/to/service-account.json"

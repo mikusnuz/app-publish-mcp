@@ -9,57 +9,126 @@
  * The MCP server auto-loads this file on startup.
  */
 
-import { OAuth2Client } from 'google-auth-library';
-import { createServer } from 'http';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import { CodeChallengeMethod, OAuth2Client } from 'google-auth-library';
+import { execFile } from 'node:child_process';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createServer } from 'node:http';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import type { AddressInfo } from 'node:net';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 const CONFIG_DIR = join(homedir(), '.app-publish-mcp');
 const GOOGLE_TOKEN_PATH = join(CONFIG_DIR, 'google.json');
+export const GOOGLE_OAUTH_CALLBACK_HOST = '127.0.0.1';
 
 // Embedded OAuth client — registered as "Desktop app" type so no client secret leak risk
 const EMBEDDED_CLIENT_ID = ''; // will be set by user or embedded
 const SCOPES = ['https://www.googleapis.com/auth/androidpublisher'];
 
-interface TokenStore {
+export interface TokenStore {
   clientId: string;
   clientSecret: string;
   refreshToken: string;
-  savedAt: string;
+  savedAt?: string;
 }
 
 export function getGoogleTokenPath(): string {
   return GOOGLE_TOKEN_PATH;
 }
 
-export function loadSavedGoogleToken(): TokenStore | null {
-  if (!existsSync(GOOGLE_TOKEN_PATH)) return null;
+export function parseGoogleTokenStore(value: unknown): TokenStore | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.clientId !== 'string' || candidate.clientId.trim() === '' ||
+    typeof candidate.clientSecret !== 'string' || candidate.clientSecret.trim() === '' ||
+    typeof candidate.refreshToken !== 'string' || candidate.refreshToken.trim() === ''
+  ) {
+    return null;
+  }
+  return {
+    clientId: candidate.clientId,
+    clientSecret: candidate.clientSecret,
+    refreshToken: candidate.refreshToken,
+    ...(typeof candidate.savedAt === 'string' ? { savedAt: candidate.savedAt } : {}),
+  };
+}
+
+export function loadSavedGoogleToken(tokenPath: string = GOOGLE_TOKEN_PATH): TokenStore | null {
+  if (!existsSync(tokenPath)) return null;
   try {
-    return JSON.parse(readFileSync(GOOGLE_TOKEN_PATH, 'utf-8'));
+    if (process.platform !== 'win32') {
+      chmodSync(dirname(tokenPath), 0o700);
+      chmodSync(tokenPath, 0o600);
+    }
+    return parseGoogleTokenStore(JSON.parse(readFileSync(tokenPath, 'utf-8')));
   } catch {
     return null;
   }
 }
 
-function saveToken(token: TokenStore): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(GOOGLE_TOKEN_PATH, JSON.stringify(token, null, 2));
+export function saveGoogleToken(token: TokenStore, tokenPath: string = GOOGLE_TOKEN_PATH): void {
+  const configDir = dirname(tokenPath);
+  mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  if (process.platform !== 'win32') chmodSync(configDir, 0o700);
+  writeFileSync(tokenPath, JSON.stringify(token, null, 2), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  if (process.platform !== 'win32') chmodSync(tokenPath, 0o600);
+}
+
+export function createOAuthState(): string {
+  return randomBytes(32).toString('hex');
+}
+
+export function createPkceValues(): { codeVerifier: string; codeChallenge: string } {
+  const codeVerifier = randomBytes(64).toString('base64url');
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+  return { codeVerifier, codeChallenge };
+}
+
+export function oauthStateMatches(expected: string, received: string | null): boolean {
+  if (!received) return false;
+  const expectedBytes = Buffer.from(expected);
+  const receivedBytes = Buffer.from(received);
+  return expectedBytes.length === receivedBytes.length
+    && timingSafeEqual(expectedBytes, receivedBytes);
+}
+
+function openBrowser(url: string): void {
+  const command = process.platform === 'darwin'
+    ? { file: 'open', args: [url] }
+    : process.platform === 'win32'
+      ? { file: 'rundll32', args: ['url.dll,FileProtocolHandler', url] }
+      : { file: 'xdg-open', args: [url] };
+
+  execFile(command.file, command.args, error => {
+    if (error) {
+      console.warn(`Could not open a browser automatically: ${error.message}`);
+    }
+  });
 }
 
 async function authGoogle(clientId: string, clientSecret: string): Promise<void> {
-  const oauth2 = new OAuth2Client(clientId, clientSecret, 'http://localhost:19847/callback');
-
-  const authUrl = oauth2.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES,
-    prompt: 'consent',
-  });
+  const callbackHost = GOOGLE_OAUTH_CALLBACK_HOST;
+  const state = createOAuthState();
+  const { codeVerifier, codeChallenge } = createPkceValues();
 
   // Start local callback server
-  const code = await new Promise<string>((resolve, reject) => {
+  const authorization = await new Promise<{
+    code: string;
+    oauth2: OAuth2Client;
+    redirectUri: string;
+  }>((resolve, reject) => {
+    let settled = false;
+    let timeout: NodeJS.Timeout | undefined;
+    let oauth2: OAuth2Client | undefined;
+    let redirectUri: string | undefined;
+
     const server = createServer(async (req, res) => {
-      const url = new URL(req.url!, `http://localhost:19847`);
+      const url = new URL(req.url ?? '/', `http://${callbackHost}`);
       if (url.pathname !== '/callback') {
         res.writeHead(404);
         res.end();
@@ -68,18 +137,25 @@ async function authGoogle(clientId: string, clientSecret: string): Promise<void>
 
       const code = url.searchParams.get('code');
       const error = url.searchParams.get('error');
+      const returnedState = url.searchParams.get('state');
 
-      if (error) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(`<h1>Authentication failed</h1><p>${error}</p><p>You can close this tab.</p>`);
-        server.close();
-        reject(new Error(`Auth failed: ${error}`));
+      if (!oauthStateMatches(state, returnedState)) {
+        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Invalid OAuth state');
         return;
       }
 
-      if (!code) {
+      if (error) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end('<h1>Authentication failed</h1><p>You can close this tab.</p>');
+        finish(new Error(`Auth failed: ${error}`));
+        return;
+      }
+
+      if (!code || !oauth2 || !redirectUri) {
         res.writeHead(400);
         res.end('Missing code');
+        finish(new Error('OAuth callback did not include an authorization code'));
         return;
       }
 
@@ -88,41 +164,67 @@ async function authGoogle(clientId: string, clientSecret: string): Promise<void>
         <html><body style="font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#0a0a0a;color:#fff">
           <div style="text-align:center">
             <h1 style="font-size:48px;margin-bottom:8px">✓</h1>
-            <h2>Authentication successful</h2>
-            <p style="color:#888">You can close this tab.</p>
+            <h2>Authorization received</h2>
+            <p style="color:#888">The terminal is completing authentication. You can close this tab.</p>
           </div>
         </body></html>
       `);
-      server.close();
-      resolve(code);
+      finish(undefined, { code, oauth2, redirectUri });
     });
 
-    server.listen(19847, () => {
+    const finish = (
+      error?: Error,
+      value?: { code: string; oauth2: OAuth2Client; redirectUri: string },
+    ) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (server.listening) server.close();
+      if (error) reject(error);
+      else resolve(value!);
+    };
+
+    server.on('error', error => finish(error));
+
+    server.listen(0, callbackHost, () => {
+      const address = server.address() as AddressInfo | null;
+      if (!address) {
+        finish(new Error('Could not determine the local OAuth callback port'));
+        return;
+      }
+
+      redirectUri = `http://${callbackHost}:${address.port}/callback`;
+      oauth2 = new OAuth2Client(clientId, clientSecret, redirectUri);
+      const authUrl = oauth2.generateAuthUrl({
+        access_type: 'offline',
+        scope: SCOPES,
+        prompt: 'consent',
+        state,
+        code_challenge_method: CodeChallengeMethod.S256,
+        code_challenge: codeChallenge,
+      });
+
       console.log('\n🔐 Opening browser for Google authentication...\n');
       console.log(`If the browser doesn't open, visit:\n${authUrl}\n`);
-
-      // Open browser
-      const { exec } = require('child_process');
-      const cmd = process.platform === 'darwin' ? 'open' :
-                  process.platform === 'win32' ? 'start' : 'xdg-open';
-      exec(`${cmd} "${authUrl}"`);
+      openBrowser(authUrl);
     });
 
     // Timeout after 2 minutes
-    setTimeout(() => {
-      server.close();
-      reject(new Error('Authentication timed out (2 min)'));
-    }, 120_000);
+    timeout = setTimeout(() => finish(new Error('Authentication timed out (2 min)')), 120_000);
   });
 
   // Exchange code for tokens
-  const { tokens } = await oauth2.getToken(code);
+  const { tokens } = await authorization.oauth2.getToken({
+    code: authorization.code,
+    codeVerifier,
+    redirect_uri: authorization.redirectUri,
+  });
 
   if (!tokens.refresh_token) {
     throw new Error('No refresh token received. Try revoking app access at https://myaccount.google.com/permissions and retry.');
   }
 
-  saveToken({
+  saveGoogleToken({
     clientId,
     clientSecret,
     refreshToken: tokens.refresh_token,
@@ -152,8 +254,8 @@ async function main() {
 
     // Parse --client-id and --client-secret from args
     for (const arg of args) {
-      if (arg.startsWith('--client-id=')) clientId = arg.split('=')[1];
-      if (arg.startsWith('--client-secret=')) clientSecret = arg.split('=')[1];
+      if (arg.startsWith('--client-id=')) clientId = arg.slice('--client-id='.length);
+      if (arg.startsWith('--client-secret=')) clientSecret = arg.slice('--client-secret='.length);
     }
 
     // Check env vars as fallback

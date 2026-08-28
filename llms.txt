@@ -21,10 +21,11 @@
 }
 ```
 
-## Tools (115 total)
+## Tools (116 total)
 
-### Apple App Store Connect (70)
+### Apple App Store Connect (72)
 - apple_list_apps — List all apps in App Store Connect
+- apple_get_next_page — Fetch an exact App Store Connect pagination URL
 - apple_get_app — Get app details by ID
 - apple_get_app_info — Get app info (categories, age rating)
 - apple_update_category — Update app categories
@@ -51,8 +52,9 @@
 - apple_update_review_detail — Update App Review contact info and notes
 - apple_submit_for_review — Submit a version for App Review
 - apple_cancel_submission — Cancel a pending submission
-- apple_get_pricing — Get current pricing info
-- apple_set_price — Set app price tier
+- apple_get_pricing — Get the complete paginated manual and automatic price schedule
+- apple_list_app_price_points — List current app price points for a base territory
+- apple_set_price — Replace the complete manual app price schedule
 - apple_list_availability — List territory availability
 - apple_list_reviews — List customer reviews
 - apple_respond_to_review — Respond to a customer review
@@ -95,7 +97,7 @@
 - apple_list_win_back_offers — List win-back offers for a subscription
 - apple_get_win_back_offer — Get a win-back offer
 
-### Google Play Console (45)
+### Google Play Console (44)
 - google_create_edit — Start a new edit session
 - google_commit_edit — Commit (publish) an edit
 - google_validate_edit — Validate an edit before committing
@@ -117,7 +119,7 @@
 - google_get_track — Get track details (releases, status)
 - google_create_release — Create a release on a track
 - google_promote_release — Promote a release to another track
-- google_halt_release — Halt a staged rollout
+- google_halt_release — Halt an exact in-progress or completed release
 - google_upload_bundle — Upload an AAB bundle
 - google_upload_apk — Upload an APK
 - google_list_reviews — List user reviews
@@ -131,7 +133,6 @@
 - google_list_subscriptions — List subscriptions
 - google_get_subscription — Get subscription details
 - google_create_subscription — Create a subscription with listings and a base plan
-- google_archive_subscription — Archive a subscription
 - google_activate_subscription_base_plan — Activate a subscription base plan
 - google_deactivate_subscription_base_plan — Deactivate a subscription base plan
 - google_list_one_time_products — List one-time products (buy/rent)

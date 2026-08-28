@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { AppleClient } from './client.js';
+import { createHash } from 'node:crypto';
+import { readFileSync, statSync } from 'node:fs';
+import { AppleApiError, AppleClient } from './client.js';
 
 // Helper to define a tool
 interface ToolDef {
@@ -7,6 +9,49 @@ interface ToolDef {
   description: string;
   schema: z.ZodObject<any>;
   handler: (client: AppleClient, args: any) => Promise<any>;
+}
+
+function assertOfficialAppleApiUrl(value: string): void {
+  const url = new URL(value);
+  if (url.origin !== 'https://api.appstoreconnect.apple.com') {
+    throw new Error('Apple pagination URL must use the official App Store Connect API origin');
+  }
+  if (!/^\/v\d+\//.test(url.pathname)) {
+    throw new Error('Apple pagination URL must use a versioned App Store Connect API path');
+  }
+}
+
+async function getAllApplePages(
+  client: AppleClient,
+  path: string,
+  params?: Record<string, string>,
+): Promise<any> {
+  const first = await client.request(path, params ? { params } : undefined);
+  const data = Array.isArray(first.data) ? [...first.data] : [];
+  const included = Array.isArray(first.included) ? [...first.included] : [];
+  const visited = new Set<string>();
+  let next = first.links?.next as string | undefined;
+
+  while (next) {
+    assertOfficialAppleApiUrl(next);
+    if (visited.has(next)) throw new Error('Apple pagination returned a repeated next URL');
+    visited.add(next);
+    const page = await client.request(next);
+    if (Array.isArray(page.data)) data.push(...page.data);
+    if (Array.isArray(page.included)) included.push(...page.included);
+    next = page.links?.next;
+  }
+
+  return {
+    ...first,
+    data,
+    ...(included.length > 0 ? { included } : {}),
+    links: { ...first.links, next: undefined },
+    meta: {
+      ...first.meta,
+      paging: { ...first.meta?.paging, total: data.length },
+    },
+  };
 }
 
 // ═══════════════════════════════════════════
@@ -23,6 +68,19 @@ const listApps: ToolDef = {
     const params: Record<string, string> = {};
     if (args.limit) params['limit'] = String(args.limit);
     return client.request('/apps', { params });
+  },
+};
+
+const getNextPage: ToolDef = {
+  name: 'apple_get_next_page',
+  description: 'Fetch the next App Store Connect page using the exact links.next URL returned by another Apple list tool',
+  schema: z.object({
+    nextUrl: z.string().url().describe('The links.next URL from a previous Apple API response'),
+  }),
+  handler: async (client, args) => {
+    const url = new URL(args.nextUrl);
+    assertOfficialAppleApiUrl(url.toString());
+    return client.request(url.toString());
   },
 };
 
@@ -130,12 +188,12 @@ const listVersions: ToolDef = {
   schema: z.object({
     appId: z.string().describe('App ID'),
     platform: z.enum(['IOS', 'MAC_OS', 'TV_OS', 'VISION_OS']).optional(),
-    state: z.string().optional().describe('Filter by state (e.g. PREPARE_FOR_SUBMISSION, READY_FOR_SALE)'),
+    state: z.string().optional().describe('Filter by current appVersionState (e.g. PREPARE_FOR_SUBMISSION, READY_FOR_DISTRIBUTION)'),
   }),
   handler: async (client, args) => {
     const params: Record<string, string> = {};
     if (args.platform) params['filter[platform]'] = args.platform;
-    if (args.state) params['filter[appStoreState]'] = args.state;
+    if (args.state) params['filter[appVersionState]'] = args.state;
     return client.request(`/apps/${args.appId}/appStoreVersions`, { params });
   },
 };
@@ -309,9 +367,19 @@ const uploadScreenshot: ToolDef = {
     screenshotSetId: z.string().describe('Screenshot Set ID'),
     filePath: z.string().describe('Local path to the screenshot image'),
     fileName: z.string().describe('File name (e.g. screen1.png)'),
-    fileSize: z.number().describe('File size in bytes'),
+    fileSize: z.number().int().positive().optional().describe('Expected file size in bytes; the actual file size is always used'),
   }),
   handler: async (client, args) => {
+    const actualFileSize = statSync(args.filePath).size;
+    if (args.fileSize !== undefined && args.fileSize !== actualFileSize) {
+      throw new Error(
+        `Screenshot fileSize mismatch: expected ${args.fileSize}, actual ${actualFileSize}`,
+      );
+    }
+    const sourceFileChecksum = createHash('md5')
+      .update(readFileSync(args.filePath))
+      .digest('hex');
+
     // Step 1: Reserve screenshot
     const reservation = await client.request('/appScreenshots', {
       method: 'POST',
@@ -320,7 +388,7 @@ const uploadScreenshot: ToolDef = {
           type: 'appScreenshots',
           attributes: {
             fileName: args.fileName,
-            fileSize: args.fileSize,
+            fileSize: actualFileSize,
           },
           relationships: {
             appScreenshotSet: {
@@ -350,7 +418,7 @@ const uploadScreenshot: ToolDef = {
           id: screenshot.id,
           attributes: {
             uploaded: true,
-            sourceFileChecksum: screenshot.attributes.sourceFileChecksum,
+            sourceFileChecksum,
           },
         },
       },
@@ -416,6 +484,15 @@ const assignBuild: ToolDef = {
 // 6. Age Rating & Review Info
 // ═══════════════════════════════════════════
 
+const ageRatingFrequency = z.enum([
+  'NONE',
+  'INFREQUENT',
+  'FREQUENT',
+  // Apple still accepts these legacy values, but deprecated them in API 4.1.
+  'INFREQUENT_OR_MILD',
+  'FREQUENT_OR_INTENSE',
+]);
+
 const getAgeRating: ToolDef = {
   name: 'apple_get_age_rating',
   description: 'Get age rating declaration for an app info',
@@ -429,19 +506,37 @@ const getAgeRating: ToolDef = {
 
 const updateAgeRating: ToolDef = {
   name: 'apple_update_age_rating',
-  description: 'Update age rating declaration',
+  description: 'Update the current App Store age-rating questionnaire. Prefer NONE, INFREQUENT, or FREQUENT for frequency fields; legacy values remain accepted by Apple for compatibility.',
   schema: z.object({
     ageRatingId: z.string().describe('Age Rating Declaration ID'),
-    alcoholTobaccoOrDrugUseOrReferences: z.enum(['NONE', 'INFREQUENT_OR_MILD', 'FREQUENT_OR_INTENSE']).optional(),
-    gamblingSimulated: z.enum(['NONE', 'INFREQUENT_OR_MILD', 'FREQUENT_OR_INTENSE']).optional(),
-    medicalOrTreatmentInformation: z.enum(['NONE', 'INFREQUENT_OR_MILD', 'FREQUENT_OR_INTENSE']).optional(),
-    profanityOrCrudeHumor: z.enum(['NONE', 'INFREQUENT_OR_MILD', 'FREQUENT_OR_INTENSE']).optional(),
-    sexualContentOrNudity: z.enum(['NONE', 'INFREQUENT_OR_MILD', 'FREQUENT_OR_INTENSE']).optional(),
-    horrorOrFearThemes: z.enum(['NONE', 'INFREQUENT_OR_MILD', 'FREQUENT_OR_INTENSE']).optional(),
-    violenceCartoonOrFantasy: z.enum(['NONE', 'INFREQUENT_OR_MILD', 'FREQUENT_OR_INTENSE']).optional(),
-    violenceRealistic: z.enum(['NONE', 'INFREQUENT_OR_MILD', 'FREQUENT_OR_INTENSE']).optional(),
-    gamblingAndContests: z.boolean().optional(),
-    unrestrictedWebAccess: z.boolean().optional(),
+    advertising: z.boolean().nullable().optional(),
+    alcoholTobaccoOrDrugUseOrReferences: ageRatingFrequency.nullable().optional(),
+    contests: ageRatingFrequency.nullable().optional(),
+    gambling: z.boolean().nullable().optional(),
+    gamblingSimulated: ageRatingFrequency.nullable().optional(),
+    gunsOrOtherWeapons: ageRatingFrequency.nullable().optional(),
+    healthOrWellnessTopics: z.boolean().nullable().optional(),
+    kidsAgeBand: z.enum(['FIVE_AND_UNDER', 'SIX_TO_EIGHT', 'NINE_TO_ELEVEN']).nullable().optional(),
+    lootBox: z.boolean().nullable().optional(),
+    medicalOrTreatmentInformation: ageRatingFrequency.nullable().optional(),
+    messagingAndChat: z.boolean().nullable().optional(),
+    parentalControls: z.boolean().nullable().optional(),
+    profanityOrCrudeHumor: ageRatingFrequency.nullable().optional(),
+    ageAssurance: z.boolean().nullable().optional(),
+    sexualContentGraphicAndNudity: ageRatingFrequency.nullable().optional(),
+    sexualContentOrNudity: ageRatingFrequency.nullable().optional(),
+    socialMedia: z.boolean().nullable().optional(),
+    socialMediaAgeRestricted: z.boolean().nullable().optional(),
+    horrorOrFearThemes: ageRatingFrequency.nullable().optional(),
+    matureOrSuggestiveThemes: ageRatingFrequency.nullable().optional(),
+    unrestrictedWebAccess: z.boolean().nullable().optional(),
+    userGeneratedContent: z.boolean().nullable().optional(),
+    violenceCartoonOrFantasy: ageRatingFrequency.nullable().optional(),
+    violenceRealisticProlongedGraphicOrSadistic: ageRatingFrequency.nullable().optional(),
+    violenceRealistic: ageRatingFrequency.nullable().optional(),
+    ageRatingOverrideV2: z.enum(['NONE', 'NINE_PLUS', 'THIRTEEN_PLUS', 'SIXTEEN_PLUS', 'EIGHTEEN_PLUS', 'UNRATED']).nullable().optional(),
+    koreaAgeRatingOverride: z.enum(['NONE', 'FIFTEEN_PLUS', 'NINETEEN_PLUS']).nullable().optional(),
+    developerAgeRatingInfoUrl: z.string().url().nullable().optional(),
   }),
   handler: async (client, args) => {
     const { ageRatingId, ...attributes } = args;
@@ -473,12 +568,17 @@ const updateReviewDetail: ToolDef = {
     notes: z.string().optional().describe('Notes for the reviewer'),
   }),
   handler: async (client, args) => {
-    // Get existing review detail
-    const existing = await client.request(
-      `/appStoreVersions/${args.versionId}/appStoreReviewDetail`,
-    );
+    // A version without review details returns 404; that is the create case.
+    let existing: any = null;
+    try {
+      existing = await client.request(
+        `/appStoreVersions/${args.versionId}/appStoreReviewDetail`,
+      );
+    } catch (error) {
+      if (!(error instanceof AppleApiError) || error.status !== 404) throw error;
+    }
 
-    const reviewDetailId = existing.data?.id;
+    const reviewDetailId = existing?.data?.id;
     const { versionId, ...attributes } = args;
 
     if (reviewDetailId) {
@@ -608,52 +708,105 @@ const cancelSubmission: ToolDef = {
 
 const getAppPricing: ToolDef = {
   name: 'apple_get_pricing',
-  description: 'Get current app pricing',
+  description: 'Get the app price schedule plus complete, fully paginated manual and automatic price collections',
   schema: z.object({
     appId: z.string().describe('App ID'),
   }),
   handler: async (client, args) => {
-    return client.request(`/apps/${args.appId}/appPriceSchedule`, {
-      params: { include: 'manualPrices,automaticPrices' },
+    const schedule = await client.request(`/apps/${args.appId}/appPriceSchedule`, {
+      params: { include: 'baseTerritory' },
+    });
+    const scheduleId = schedule.data?.id;
+    if (typeof scheduleId !== 'string' || scheduleId.length === 0) {
+      throw new Error('App Store Connect returned a price schedule without an ID');
+    }
+    const collectionParams = {
+      include: 'appPricePoint,territory',
+      limit: '200',
+    };
+    const [manualPrices, automaticPrices] = await Promise.all([
+      getAllApplePages(
+        client,
+        `/appPriceSchedules/${scheduleId}/manualPrices`,
+        collectionParams,
+      ),
+      getAllApplePages(
+        client,
+        `/appPriceSchedules/${scheduleId}/automaticPrices`,
+        collectionParams,
+      ),
+    ]);
+    return { schedule, manualPrices, automaticPrices };
+  },
+};
+
+const listAppPricePoints: ToolDef = {
+  name: 'apple_list_app_price_points',
+  description: 'List current App Price Points for an app in a base territory; use an ID from this response with apple_set_price',
+  schema: z.object({
+    appId: z.string().describe('App ID'),
+    territoryId: z.string().describe('Territory ID used as the base territory, e.g. USA'),
+    limit: z.number().int().min(1).max(200).optional().default(200),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/apps/${args.appId}/appPricePoints`, {
+      params: {
+        'filter[territory]': args.territoryId,
+        include: 'territory',
+        limit: String(args.limit),
+      },
     });
   },
 };
 
 const setAppPrice: ToolDef = {
   name: 'apple_set_price',
-  description: 'Set app price (free or paid). Use price tier ID from Apple price points.',
+  description: 'Replace the complete manual app price schedule. Call apple_get_pricing first and include every current and future manual price entry that must be preserved.',
   schema: z.object({
     appId: z.string().describe('App ID'),
-    priceTierId: z.string().describe('Price tier ID (use "0" for free)'),
-    startDate: z.string().optional().describe('ISO 8601 start date'),
+    baseTerritoryId: z.string().describe('Base territory ID for that price point, e.g. USA'),
+    manualPrices: z.array(z.object({
+      appPricePointId: z.string().min(1).describe('App Price Point ID returned by apple_list_app_price_points'),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().describe('Start date in YYYY-MM-DD, or null for the current entry'),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().describe('End date in YYYY-MM-DD, or null for an open-ended entry'),
+    })).min(1).describe('Complete desired manual schedule, including existing entries that must remain'),
   }),
   handler: async (client, args) => {
-    return client.request(`/apps/${args.appId}/appPriceSchedule`, {
+    const prices = args.manualPrices.map((price: any, index: number) => ({
+      id: '${newprice-' + index + '}',
+      appPricePointId: price.appPricePointId,
+      startDate: price.startDate ?? null,
+      endDate: price.endDate ?? null,
+    }));
+    return client.request('/appPriceSchedules', {
       method: 'POST',
       body: {
         data: {
           type: 'appPriceSchedules',
+          attributes: {},
           relationships: {
             app: { data: { type: 'apps', id: args.appId } },
+            baseTerritory: {
+              data: { type: 'territories', id: args.baseTerritoryId },
+            },
             manualPrices: {
-              data: [{ type: 'appPrices', id: '${new}' }],
+              data: prices.map((price: any) => ({ type: 'appPrices', id: price.id })),
             },
           },
         },
-        included: [
-          {
+        included: prices.map((price: any) => ({
             type: 'appPrices',
-            id: '${new}',
+            id: price.id,
             attributes: {
-              startDate: args.startDate ?? null,
+              startDate: price.startDate,
+              endDate: price.endDate,
             },
             relationships: {
-              priceTier: {
-                data: { type: 'appPriceTiers', id: args.priceTierId },
+              appPricePoint: {
+                data: { type: 'appPricePoints', id: price.appPricePointId },
               },
             },
-          },
-        ],
+          })),
       },
     });
   },
@@ -661,12 +814,32 @@ const setAppPrice: ToolDef = {
 
 const listTerritoryAvailability: ToolDef = {
   name: 'apple_list_availability',
-  description: 'List territories where the app is available',
+  description: 'List current App Availability and all related territory availability records',
   schema: z.object({
     appId: z.string().describe('App ID'),
   }),
   handler: async (client, args) => {
-    return client.request(`/apps/${args.appId}/availableTerritoriesV2`);
+    const availability: any = await client.request(`/apps/${args.appId}/appAvailabilityV2`);
+    const availabilityId = availability.data?.id;
+    if (!availabilityId) {
+      throw new Error('Apple API response did not include an App Availability ID');
+    }
+
+    const relatedUrl = availability.data?.relationships?.territoryAvailabilities?.links?.related;
+    const territoryAvailabilities = await client.request(
+      relatedUrl ?? `/v2/appAvailabilities/${availabilityId}/territoryAvailabilities`,
+      {
+        params: {
+          include: 'territory',
+          limit: '200',
+        },
+      },
+    );
+
+    return {
+      appAvailability: availability.data,
+      territoryAvailabilities,
+    };
   },
 };
 
@@ -1550,7 +1723,7 @@ const getWinBackOffer: ToolDef = {
 
 export const appleTools: ToolDef[] = [
   // App Management
-  listApps, getApp, getAppInfo, updateAppInfoCategory,
+  listApps, getNextPage, getApp, getAppInfo, updateAppInfoCategory,
   // Bundle IDs
   listBundleIds, createBundleId,
   // Versions & Localizations
@@ -1567,7 +1740,7 @@ export const appleTools: ToolDef[] = [
   // Submission
   submitForReview, cancelSubmission,
   // Pricing & Availability
-  getAppPricing, setAppPrice, listTerritoryAvailability,
+  getAppPricing, listAppPricePoints, setAppPrice, listTerritoryAvailability,
   // Customer Reviews
   listCustomerReviews, respondToReview,
   // Bundle ID Capabilities

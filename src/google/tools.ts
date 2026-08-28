@@ -9,6 +9,18 @@ interface ToolDef {
   handler: (client: GoogleClient, args: any) => Promise<any>;
 }
 
+const microsSchema = z.string().regex(/^\d+$/, 'Price micros must be a non-negative integer string');
+const currencySchema = z.string().regex(/^[A-Z]{3}$/, 'Currency must be an ISO 4217 code');
+
+function priceToMoney(micros: string, currency: string) {
+  const value = BigInt(micros);
+  return {
+    currencyCode: currency,
+    units: (value / 1_000_000n).toString(),
+    nanos: Number((value % 1_000_000n) * 1_000n),
+  };
+}
+
 // ═══════════════════════════════════════════
 // 1. Edit Lifecycle
 // ═══════════════════════════════════════════
@@ -27,14 +39,25 @@ const createEdit: ToolDef = {
 
 const commitEdit: ToolDef = {
   name: 'google_commit_edit',
-  description: 'Commit all pending changes in an edit session. This publishes the changes.',
+  description: 'Commit all pending changes. By default, fail safely instead of canceling changes that are already in review.',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     editId: z.string().describe('Edit ID from google_create_edit'),
+    changesInReviewBehavior: z
+      .enum(['ERROR_IF_IN_REVIEW', 'CANCEL_IN_REVIEW_AND_SUBMIT'])
+      .optional()
+      .default('ERROR_IF_IN_REVIEW')
+      .describe('Safe default is ERROR_IF_IN_REVIEW. Choose cancellation only when intentionally replacing a review.'),
+    changesNotSentForReview: z
+      .boolean()
+      .optional()
+      .describe('Keep rejected changes out of review until they are explicitly sent from Play Console.'),
   }),
   handler: async (client, args) => {
-    await client.commitEdit(args.packageName, args.editId);
-    return { success: true };
+    return client.commitEdit(args.packageName, args.editId, {
+      changesInReviewBehavior: args.changesInReviewBehavior,
+      changesNotSentForReview: args.changesNotSentForReview,
+    });
   },
 };
 
@@ -283,7 +306,7 @@ const deleteAllImages: ToolDef = {
 
 const listTracks: ToolDef = {
   name: 'google_list_tracks',
-  description: 'List all release tracks (internal, alpha, beta, production)',
+  description: 'List all release tracks, including custom closed-test and form-factor tracks',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     editId: z.string().describe('Edit ID'),
@@ -299,36 +322,81 @@ const getTrack: ToolDef = {
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     editId: z.string().describe('Edit ID'),
-    track: z.enum(['internal', 'alpha', 'beta', 'production']).describe('Track name'),
+    track: z.string().min(1).describe('Track ID returned by google_list_tracks'),
   }),
   handler: async (client, args) => {
     return client.getTrack(args.packageName, args.editId, args.track);
   },
 };
 
+function normalizedVersionCodes(release: androidpublisher_v3.Schema$TrackRelease): string[] {
+  return (release.versionCodes ?? [])
+    .filter((value): value is string => typeof value === 'string')
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+function sameVersionCodes(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export function selectTrackReleaseByVersionCodes(
+  releases: androidpublisher_v3.Schema$TrackRelease[],
+  requestedVersionCodes: string[],
+): androidpublisher_v3.Schema$TrackRelease {
+  const requested = [...requestedVersionCodes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const matches = releases.filter(release => sameVersionCodes(normalizedVersionCodes(release), requested));
+  if (matches.length !== 1) {
+    const available = releases.map(release => normalizedVersionCodes(release).join(',')).filter(Boolean);
+    throw new Error(
+      matches.length > 1
+        ? `Multiple source releases match version codes ${requested.join(', ')}`
+        : `No source release exactly matches version codes ${requested.join(', ')}. Available releases: ${available.join(' | ') || 'none'}`,
+    );
+  }
+  return matches[0];
+}
+
+function validateStagedRelease(
+  track: string,
+  status: string,
+  userFraction: number | undefined,
+): void {
+  const trackKind = track.split(':').at(-1);
+  if (userFraction !== undefined && (trackKind === 'qa' || trackKind === 'internal')) {
+    throw new Error('userFraction is not supported for the internal track');
+  }
+  if (userFraction !== undefined && status !== 'inProgress' && status !== 'halted') {
+    throw new Error('userFraction can only be set for an inProgress or halted release');
+  }
+  if (status === 'inProgress' && userFraction === undefined) {
+    throw new Error(`${status} releases require userFraction`);
+  }
+}
+
 const createRelease: ToolDef = {
   name: 'google_create_release',
-  description: 'Create a release on a track with optional version codes and release notes',
+  description: 'Create or update one release with an explicit version-code set. Google Play retains fallback releases; send only the desired change.',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     editId: z.string().describe('Edit ID'),
-    track: z.enum(['internal', 'alpha', 'beta', 'production']).describe('Target track'),
-    versionCodes: z.array(z.string()).optional().describe('Version codes to include'),
+    track: z.string().min(1).describe('Target track ID, including custom or form-factor tracks returned by google_list_tracks'),
+    versionCodes: z.array(z.string()).min(1).describe('Complete version-code set for this release'),
     releaseNotes: z.array(z.object({
       language: z.string(),
       text: z.string(),
     })).optional().describe('Release notes per language'),
     status: z.enum(['draft', 'halted', 'completed', 'inProgress']).default('completed'),
-    userFraction: z.number().optional().describe('Staged rollout fraction (0.0-1.0, only for production)'),
+    userFraction: z.number().gt(0).lt(1).optional().describe('Staged rollout fraction (exclusive range 0-1; not supported for internal)'),
     releaseName: z.string().optional().describe('Release name/label'),
   }),
   handler: async (client, args) => {
+    validateStagedRelease(args.track, args.status, args.userFraction);
     const release: any = {
       status: args.status,
+      versionCodes: args.versionCodes,
     };
-    if (args.versionCodes) release.versionCodes = args.versionCodes;
     if (args.releaseNotes) release.releaseNotes = args.releaseNotes;
-    if (args.userFraction) release.userFraction = args.userFraction;
+    if (args.userFraction !== undefined) release.userFraction = args.userFraction;
     if (args.releaseName) release.name = args.releaseName;
 
     return client.updateTrack(args.packageName, args.editId, args.track, [release]);
@@ -341,26 +409,39 @@ const promoteRelease: ToolDef = {
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     editId: z.string().describe('Edit ID'),
-    fromTrack: z.enum(['internal', 'alpha', 'beta']).describe('Source track'),
-    toTrack: z.enum(['alpha', 'beta', 'production']).describe('Target track'),
-    userFraction: z.number().optional().describe('Staged rollout fraction for production'),
+    fromTrack: z.string().min(1).describe('Source track ID returned by google_list_tracks'),
+    toTrack: z.string().min(1).describe('Target track ID, including custom or form-factor tracks'),
+    versionCodes: z.array(z.string()).min(1).describe('Complete version-code set identifying the source release'),
+    userFraction: z.number().gt(0).lt(1).optional().describe('Staged rollout fraction (not supported for internal)'),
     releaseNotes: z.array(z.object({
       language: z.string(),
       text: z.string(),
     })).optional(),
   }),
   handler: async (client, args) => {
-    // Get the current release from source track
+    if (args.fromTrack === args.toTrack) {
+      throw new Error('fromTrack and toTrack must be different');
+    }
+    const status = args.userFraction !== undefined ? 'inProgress' : 'completed';
+    validateStagedRelease(args.toTrack, status, args.userFraction);
+
     const sourceTrack = await client.getTrack(args.packageName, args.editId, args.fromTrack);
-    const latestRelease = sourceTrack.releases?.[0];
-    if (!latestRelease) throw new Error(`No release found on ${args.fromTrack} track`);
+    const sourceRelease = selectTrackReleaseByVersionCodes(
+      sourceTrack.releases ?? [],
+      args.versionCodes,
+    );
 
     const release: any = {
-      versionCodes: latestRelease.versionCodes,
-      status: args.userFraction ? 'inProgress' : 'completed',
+      versionCodes: sourceRelease.versionCodes,
+      status,
     };
-    if (args.userFraction) release.userFraction = args.userFraction;
+    if (sourceRelease.name) release.name = sourceRelease.name;
+    if (sourceRelease.inAppUpdatePriority !== undefined) {
+      release.inAppUpdatePriority = sourceRelease.inAppUpdatePriority;
+    }
+    if (args.userFraction !== undefined) release.userFraction = args.userFraction;
     if (args.releaseNotes) release.releaseNotes = args.releaseNotes;
+    else if (sourceRelease.releaseNotes) release.releaseNotes = sourceRelease.releaseNotes;
 
     return client.updateTrack(args.packageName, args.editId, args.toTrack, [release]);
   },
@@ -368,19 +449,30 @@ const promoteRelease: ToolDef = {
 
 const haltRelease: ToolDef = {
   name: 'google_halt_release',
-  description: 'Halt an ongoing staged rollout',
+  description: 'Halt an exact in-progress or completed release; halting a completed production release rolls users back to the previous completed release',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     editId: z.string().describe('Edit ID'),
-    track: z.string().describe('Track name'),
+    track: z.string().min(1).describe('Track ID returned by google_list_tracks'),
+    versionCodes: z.array(z.string().min(1)).min(1).describe('Complete version-code set identifying the release to halt'),
   }),
   handler: async (client, args) => {
     const trackData = await client.getTrack(args.packageName, args.editId, args.track);
-    const inProgress = trackData.releases?.find(r => r.status === 'inProgress');
-    if (!inProgress) throw new Error('No in-progress release to halt');
+    const target = selectTrackReleaseByVersionCodes(
+      trackData.releases ?? [],
+      args.versionCodes,
+    );
+    if (target.status !== 'inProgress' && target.status !== 'completed') {
+      throw new Error(
+        `Release ${args.versionCodes.join(',')} cannot be halted from status ${target.status ?? 'unknown'}`,
+      );
+    }
 
-    inProgress.status = 'halted';
-    return client.updateTrack(args.packageName, args.editId, args.track, trackData.releases!);
+    const halted: androidpublisher_v3.Schema$TrackRelease = {
+      versionCodes: target.versionCodes,
+      status: 'halted',
+    };
+    return client.updateTrack(args.packageName, args.editId, args.track, [halted]);
   },
 };
 
@@ -472,9 +564,10 @@ const listInAppProducts: ToolDef = {
   description: 'List all in-app products (managed products) for an app',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
+    pageToken: z.string().optional().describe('Pagination token from the previous response'),
   }),
   handler: async (client, args) => {
-    return client.listInAppProducts(args.packageName);
+    return client.listInAppProducts(args.packageName, args.pageToken);
   },
 };
 
@@ -579,9 +672,14 @@ const listSubscriptions: ToolDef = {
   description: 'List all subscriptions for an app',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
+    pageSize: z.number().int().min(1).max(1000).optional(),
+    pageToken: z.string().optional().describe('Pagination token from the previous response'),
   }),
   handler: async (client, args) => {
-    return client.listSubscriptions(args.packageName);
+    return client.listSubscriptions(args.packageName, {
+      pageSize: args.pageSize,
+      pageToken: args.pageToken,
+    });
   },
 };
 
@@ -597,17 +695,77 @@ const getSubscription: ToolDef = {
   },
 };
 
-const archiveSubscription: ToolDef = {
-  name: 'google_archive_subscription',
-  description: 'Archive a subscription (remove from Google Play but retain for existing subscribers)',
-  schema: z.object({
-    packageName: z.string().describe('Android package name'),
-    productId: z.string().describe('Subscription product ID to archive'),
+const offerTagSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9](?:[a-z0-9-]{0,18}[a-z0-9])?$/,
+    'Offer tags must be 1-20 lowercase letters, digits, or hyphens, and must start and end with a letter or digit',
+  );
+
+const subscriptionBasePlanSchema = z.object({
+  basePlanId: z.string().regex(
+    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
+    'basePlanId must be 1-63 lowercase letters, digits, or hyphens, and must start and end with a letter or digit',
+  ),
+  autoRenewing: z.object({
+    billingPeriodDuration: z.string().min(1),
+    gracePeriodDuration: z.string().optional(),
+    accountHoldDuration: z.string().optional(),
+    prorationMode: z.string().min(1).optional(),
+    resubscribeState: z.string().min(1).optional(),
+    legacyCompatible: z.boolean().optional(),
+  }).optional(),
+  prepaid: z.object({
+    billingPeriodDuration: z.string().min(1),
+    timeExtension: z.enum(['TIME_EXTENSION_ACTIVE', 'TIME_EXTENSION_INACTIVE']).optional(),
+  }).optional(),
+  installments: z.object({
+    billingPeriodDuration: z.string().min(1),
+    committedPaymentsCount: z.number().int().positive(),
+    renewalType: z.enum([
+      'RENEWAL_TYPE_RENEWS_WITHOUT_COMMITMENT',
+      'RENEWAL_TYPE_RENEWS_WITH_COMMITMENT',
+    ]),
+    gracePeriodDuration: z.string().optional(),
+    accountHoldDuration: z.string().optional(),
+    prorationMode: z.string().min(1).optional(),
+    resubscribeState: z.string().min(1).optional(),
+  }).optional(),
+  regionalConfigs: z.array(z.object({
+    regionCode: z.string().regex(/^[A-Z]{2}$/),
+    newSubscriberAvailability: z.boolean().optional().default(true),
+    priceMicros: microsSchema,
+    currency: currencySchema,
+  })).min(1).superRefine((regions, context) => {
+    const seen = new Set<string>();
+    regions.forEach((region, index) => {
+      if (seen.has(region.regionCode)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index, 'regionCode'],
+          message: `Duplicate regionCode ${region.regionCode}`,
+        });
+      }
+      seen.add(region.regionCode);
+    });
   }),
-  handler: async (client, args) => {
-    return client.archiveSubscription(args.packageName, args.productId);
-  },
-};
+  otherRegionsConfig: z.object({
+    usdPriceMicros: microsSchema,
+    eurPriceMicros: microsSchema,
+    newSubscriberAvailability: z.boolean().optional().default(false),
+  }).optional(),
+  offerTags: z.array(offerTagSchema).max(20).optional(),
+}).superRefine((plan, context) => {
+  const typeCount = [plan.autoRenewing, plan.prepaid, plan.installments]
+    .filter(value => value !== undefined).length;
+  if (typeCount !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['autoRenewing'],
+      message: 'Each base plan must define exactly one of autoRenewing, prepaid, or installments',
+    });
+  }
+});
 
 const createSubscription: ToolDef = {
   name: 'google_create_subscription',
@@ -616,77 +774,63 @@ const createSubscription: ToolDef = {
   schema: z.object({
     packageName: z.string().describe('Android package name (e.g. com.example.app)'),
     productId: z
-      .string()
+      .string().max(40).regex(/^[a-z0-9][a-z0-9._]*$/)
       .describe('Subscription product ID, e.g. com.example.app.pro_monthly'),
     listings: z
       .array(
         z.object({
-          languageCode: z.string().describe('BCP-47 locale code, e.g. en-US'),
-          title: z.string().describe('Localized subscription title (max 30 chars)'),
+          languageCode: z.string().min(1).describe('BCP-47 locale code, e.g. en-US'),
+          title: z.string().max(55).describe('Localized subscription title (max 55 chars)'),
           description: z
-            .string()
-            .describe('Localized description (max 80 chars)'),
-          benefits: z
-            .array(z.string())
+            .string().max(200)
             .optional()
-            .describe('Up to four short benefit bullets per locale'),
+            .describe('Localized description (max 200 chars)'),
+          benefits: z
+            .array(z.string().min(1).max(40)).max(4)
+            .optional()
+            .describe('Up to four benefit bullets of at most 40 chars each per locale'),
         }),
       )
       .min(1)
+      .superRefine((listings, context) => {
+        const seen = new Set<string>();
+        listings.forEach((listing, index) => {
+          if (seen.has(listing.languageCode)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [index, 'languageCode'],
+              message: `Duplicate languageCode ${listing.languageCode}`,
+            });
+          }
+          seen.add(listing.languageCode);
+        });
+      })
       .describe('At least one localization is required'),
     basePlans: z
-      .array(
-        z.object({
-          basePlanId: z
-            .string()
-            .describe('Stable base plan id, e.g. pro-monthly'),
-          autoRenewing: z
-            .object({
-              billingPeriodDuration: z
-                .string()
-                .describe('ISO 8601 duration, e.g. P1M, P3M, P1Y'),
-              gracePeriodDuration: z
-                .string()
-                .optional()
-                .describe('ISO 8601 grace period duration, e.g. P3D'),
-              accountHoldDuration: z
-                .string()
-                .optional()
-                .describe('ISO 8601 account hold duration, e.g. P30D'),
-              prorationMode: z
-                .string()
-                .optional()
-                .describe(
-                  'e.g. SUBSCRIPTION_PRORATION_MODE_CHARGE_ON_NEXT_BILLING_DATE',
-                ),
-              resubscribeState: z
-                .string()
-                .optional()
-                .describe('e.g. RESUBSCRIBE_STATE_ACTIVE'),
-              legacyCompatible: z.boolean().optional(),
-            })
-            .describe('Auto-renewing billing config. Use this for standard monthly/yearly subs.'),
-          regionalConfigs: z
-            .array(
-              z.object({
-                regionCode: z.string().describe('ISO 3166-1 alpha-2 region, e.g. US'),
-                newSubscriberAvailability: z.boolean().optional().default(true),
-                priceMicros: z
-                  .string()
-                  .describe('Price in micros, e.g. 3990000 for $3.99'),
-                currency: z.string().describe('ISO 4217 currency code, e.g. USD'),
-              }),
-            )
-            .min(1)
-            .describe('At least one region price is required'),
-          offerTags: z
-            .array(z.string())
-            .optional()
-            .describe('Optional offer tag identifiers'),
-        }),
-      )
+      .array(subscriptionBasePlanSchema)
       .min(1)
-      .describe('At least one base plan is required'),
+      .superRefine((plans, context) => {
+        const seen = new Set<string>();
+        let legacyCompatibleCount = 0;
+        plans.forEach((plan, index) => {
+          if (seen.has(plan.basePlanId)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [index, 'basePlanId'],
+              message: `Duplicate basePlanId ${plan.basePlanId}`,
+            });
+          }
+          seen.add(plan.basePlanId);
+          if (plan.autoRenewing?.legacyCompatible) legacyCompatibleCount += 1;
+        });
+        if (legacyCompatibleCount > 1) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'At most one auto-renewing base plan may be legacyCompatible',
+          });
+        }
+      })
+      .describe('At least one auto-renewing, prepaid, or installments base plan is required'),
     regionsVersion: z
       .string()
       .optional()
@@ -704,28 +848,40 @@ const createSubscription: ToolDef = {
         benefits: l.benefits,
       })),
       basePlans: args.basePlans.map((bp: any) => {
-        const priceToMoney = (micros: string, currency: string) => {
-          const n = BigInt(micros);
-          const unitsBig = n / 1_000_000n;
-          const nanos = Number((n % 1_000_000n) * 1_000n);
-          return { currencyCode: currency, units: unitsBig.toString(), nanos };
-        };
         return {
           basePlanId: bp.basePlanId,
-          state: 'DRAFT',
-          autoRenewingBasePlanType: {
+          autoRenewingBasePlanType: bp.autoRenewing ? {
             billingPeriodDuration: bp.autoRenewing.billingPeriodDuration,
             gracePeriodDuration: bp.autoRenewing.gracePeriodDuration,
             accountHoldDuration: bp.autoRenewing.accountHoldDuration,
             prorationMode: bp.autoRenewing.prorationMode,
             resubscribeState: bp.autoRenewing.resubscribeState,
             legacyCompatible: bp.autoRenewing.legacyCompatible ?? false,
-          },
+          } : undefined,
+          prepaidBasePlanType: bp.prepaid ? {
+            billingPeriodDuration: bp.prepaid.billingPeriodDuration,
+            timeExtension: bp.prepaid.timeExtension,
+          } : undefined,
+          installmentsBasePlanType: bp.installments ? {
+            billingPeriodDuration: bp.installments.billingPeriodDuration,
+            committedPaymentsCount: bp.installments.committedPaymentsCount,
+            renewalType: bp.installments.renewalType,
+            gracePeriodDuration: bp.installments.gracePeriodDuration,
+            accountHoldDuration: bp.installments.accountHoldDuration,
+            prorationMode: bp.installments.prorationMode,
+            resubscribeState: bp.installments.resubscribeState,
+          } : undefined,
           regionalConfigs: bp.regionalConfigs.map((rc: any) => ({
             regionCode: rc.regionCode,
             newSubscriberAvailability: rc.newSubscriberAvailability ?? true,
             price: priceToMoney(rc.priceMicros, rc.currency),
           })),
+          otherRegionsConfig: bp.otherRegionsConfig ? {
+            usdPrice: priceToMoney(bp.otherRegionsConfig.usdPriceMicros, 'USD'),
+            eurPrice: priceToMoney(bp.otherRegionsConfig.eurPriceMicros, 'EUR'),
+            newSubscriberAvailability:
+              bp.otherRegionsConfig.newSubscriberAvailability ?? false,
+          } : undefined,
           offerTags: bp.offerTags?.map((t: string) => ({ tag: t })),
         };
       }),
@@ -759,7 +915,7 @@ const activateBasePlan: ToolDef = {
 
 const deactivateBasePlan: ToolDef = {
   name: 'google_deactivate_subscription_base_plan',
-  description: 'Deactivate a subscription base plan so it stops being purchasable.',
+  description: 'Deactivate a base plan for new subscribers while existing subscribers retain their subscription. Use this instead of the unsupported subscription archive operation.',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     productId: z.string().describe('Subscription product ID'),
@@ -779,9 +935,14 @@ const listOneTimeProducts: ToolDef = {
   description: 'List all one-time products (non-subscription purchases, buy or rent) for an app',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
+    pageSize: z.number().int().min(1).max(1000).optional(),
+    pageToken: z.string().optional().describe('Pagination token from the previous response'),
   }),
   handler: async (client, args) => {
-    return client.listOneTimeProducts(args.packageName);
+    return client.listOneTimeProducts(args.packageName, {
+      pageSize: args.pageSize,
+      pageToken: args.pageToken,
+    });
   },
 };
 
@@ -797,8 +958,20 @@ const getOneTimeProduct: ToolDef = {
   },
 };
 
+const purchaseOptionAvailabilitySchema = z.enum([
+  'AVAILABLE',
+  'NO_LONGER_AVAILABLE',
+  'AVAILABLE_IF_RELEASED',
+  'AVAILABLE_FOR_OFFERS_ONLY',
+]);
+
+const newRegionsAvailabilitySchema = z.enum([
+  'AVAILABLE',
+  'NO_LONGER_AVAILABLE',
+]);
+
 const oneTimeProductPurchaseOptionSchema = z.object({
-  purchaseOptionId: z.string().describe('Stable purchase option id, e.g. buy-standard'),
+  purchaseOptionId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/).describe('Stable purchase option id, e.g. buy-standard'),
   buy: z
     .object({
       legacyCompatible: z.boolean().optional().describe('Marks this as the single "buy" option usable by legacy PBL flows'),
@@ -816,31 +989,101 @@ const oneTimeProductPurchaseOptionSchema = z.object({
   regionalConfigs: z
     .array(
       z.object({
-        regionCode: z.string().describe('ISO 3166-1 alpha-2 region, e.g. US'),
-        priceMicros: z.string().describe('Price in micros, e.g. 3990000 for $3.99'),
-        currency: z.string().describe('ISO 4217 currency code, e.g. USD'),
-        availability: z.enum(['AVAILABLE', 'NOT_AVAILABLE']).optional().default('AVAILABLE'),
+        regionCode: z.string().regex(/^[A-Z]{2}$/).describe('ISO 3166-1 alpha-2 region, e.g. US'),
+        priceMicros: z.string().regex(/^\d+$/).describe('Non-negative price in micros, e.g. 3990000 for $3.99'),
+        currency: z.string().regex(/^[A-Z]{3}$/).describe('ISO 4217 currency code, e.g. USD'),
+        availability: purchaseOptionAvailabilitySchema.optional().default('AVAILABLE'),
       }),
     )
     .min(1)
+    .superRefine((regions, context) => {
+      const seen = new Set<string>();
+      regions.forEach((region, index) => {
+        if (seen.has(region.regionCode)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [index, 'regionCode'],
+            message: `Duplicate regionCode ${region.regionCode}`,
+          });
+        }
+        seen.add(region.regionCode);
+      });
+    })
     .describe('At least one region price is required'),
-  offerTags: z.array(z.string()).optional(),
+  newRegionsConfig: z.object({
+    availability: newRegionsAvailabilitySchema,
+    usdPriceMicros: microsSchema,
+    eurPriceMicros: microsSchema,
+  }).optional(),
+  taxAndComplianceSettings: z.object({
+    withdrawalRightType: z.string().min(1).optional(),
+  }).optional(),
+  offerTags: z.array(offerTagSchema).max(20).optional(),
 });
 
 const oneTimeProductBody = {
   packageName: z.string().describe('Android package name (e.g. com.example.app)'),
-  productId: z.string().describe('One-time product ID, e.g. com.example.app.remove_ads'),
+  productId: z.string().regex(/^[a-z0-9][a-z0-9._]*$/).describe('One-time product ID, e.g. com.example.app.remove_ads'),
   listings: z
     .array(
       z.object({
-        languageCode: z.string().describe('BCP-47 locale code, e.g. en-US'),
-        title: z.string().describe('Localized title (max 55 chars)'),
-        description: z.string().describe('Localized description (max 200 chars)'),
+        languageCode: z.string().min(1).describe('BCP-47 locale code, e.g. en-US'),
+        title: z.string().max(55).describe('Localized title (max 55 chars)'),
+        description: z.string().max(200).describe('Localized description (max 200 chars)'),
       }),
     )
     .min(1)
+    .superRefine((listings, context) => {
+      const seen = new Set<string>();
+      listings.forEach((listing, index) => {
+        if (seen.has(listing.languageCode)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [index, 'languageCode'],
+            message: `Duplicate languageCode ${listing.languageCode}`,
+          });
+        }
+        seen.add(listing.languageCode);
+      });
+    })
     .describe('At least one localization is required'),
-  purchaseOptions: z.array(oneTimeProductPurchaseOptionSchema).min(1).describe('At least one purchase option (buy or rent) is required'),
+  purchaseOptions: z.array(oneTimeProductPurchaseOptionSchema).min(1).superRefine((options, context) => {
+    const seen = new Set<string>();
+    let legacyCompatibleCount = 0;
+    options.forEach((option, index) => {
+      if (seen.has(option.purchaseOptionId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index, 'purchaseOptionId'],
+          message: `Duplicate purchaseOptionId ${option.purchaseOptionId}`,
+        });
+      }
+      seen.add(option.purchaseOptionId);
+      if (option.buy?.legacyCompatible) legacyCompatibleCount += 1;
+    });
+    if (legacyCompatibleCount > 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At most one buy purchase option may be legacyCompatible',
+      });
+    }
+  }).describe('At least one purchase option (buy or rent) is required'),
+  offerTags: z.array(offerTagSchema).max(20).optional(),
+  restrictedPaymentCountries: z.array(z.string().regex(/^[A-Z]{2}$/)).optional(),
+  taxAndComplianceSettings: z.object({
+    isTokenizedDigitalAsset: z.boolean().optional(),
+    productTaxCategoryCode: z.string().min(1).optional(),
+    regionalProductAgeRatingInfos: z.array(z.object({
+      regionCode: z.string().regex(/^[A-Z]{2}$/),
+      productAgeRatingTier: z.string().min(1),
+    })).optional(),
+    regionalTaxConfigs: z.array(z.object({
+      regionCode: z.string().regex(/^[A-Z]{2}$/),
+      eligibleForStreamingServiceTaxRate: z.boolean().optional(),
+      streamingTaxType: z.string().min(1).optional(),
+      taxTier: z.string().min(1).optional(),
+    })).optional(),
+  }).optional(),
   regionsVersion: z
     .string()
     .optional()
@@ -849,12 +1092,12 @@ const oneTimeProductBody = {
 };
 
 function buildOneTimeProduct(args: any): androidpublisher_v3.Schema$OneTimeProduct {
-  const priceToMoney = (micros: string, currency: string) => {
-    const n = BigInt(micros);
-    const unitsBig = n / 1_000_000n;
-    const nanos = Number((n % 1_000_000n) * 1_000n);
-    return { currencyCode: currency, units: unitsBig.toString(), nanos };
-  };
+  for (const option of args.purchaseOptions) {
+    if (Boolean(option.buy) === Boolean(option.rent)) {
+      throw new Error(`Purchase option ${option.purchaseOptionId} must define exactly one of buy or rent`);
+    }
+  }
+
   return {
     packageName: args.packageName,
     productId: args.productId,
@@ -874,20 +1117,42 @@ function buildOneTimeProduct(args: any): androidpublisher_v3.Schema$OneTimeProdu
         price: priceToMoney(rc.priceMicros, rc.currency),
         availability: rc.availability ?? 'AVAILABLE',
       })),
+      newRegionsConfig: po.newRegionsConfig ? {
+        availability: po.newRegionsConfig.availability,
+        usdPrice: priceToMoney(po.newRegionsConfig.usdPriceMicros, 'USD'),
+        eurPrice: priceToMoney(po.newRegionsConfig.eurPriceMicros, 'EUR'),
+      } : undefined,
+      taxAndComplianceSettings: po.taxAndComplianceSettings,
       offerTags: po.offerTags?.map((t: string) => ({ tag: t })),
     })),
+    offerTags: args.offerTags?.map((tag: string) => ({ tag })),
+    restrictedPaymentCountries: args.restrictedPaymentCountries
+      ? { regionCodes: args.restrictedPaymentCountries }
+      : undefined,
+    taxAndComplianceSettings: args.taxAndComplianceSettings,
   };
 }
 
 const createOneTimeProduct: ToolDef = {
   name: 'google_create_one_time_product',
   description:
-    'Create a new one-time product (buy or rent) on Google Play using the monetization.onetimeproducts API. Pass listings and at least one purchase option with regional pricing. Purchase options are created ACTIVE by default under this upsert; use google_deactivate_purchase_option to pull one down.',
+    'Create a new one-time product (buy or rent) on Google Play. Inspect the returned purchase-option state and call google_activate_purchase_option when it is DRAFT.',
   schema: z.object(oneTimeProductBody),
   handler: async (client, args) => {
+    const hasNoLongerAvailable = args.purchaseOptions.some((option: any) =>
+      option.regionalConfigs.some((region: any) => region.availability === 'NO_LONGER_AVAILABLE') ||
+      option.newRegionsConfig?.availability === 'NO_LONGER_AVAILABLE');
+    if (hasNoLongerAvailable) {
+      throw new Error('NO_LONGER_AVAILABLE is only valid when updating an existing purchase option');
+    }
     const body = buildOneTimeProduct(args);
+    const updateFields = ['listings', 'purchaseOptions'];
+    if (args.offerTags !== undefined) updateFields.push('offerTags');
+    if (args.restrictedPaymentCountries !== undefined) updateFields.push('restrictedPaymentCountries');
+    if (args.taxAndComplianceSettings !== undefined) updateFields.push('taxAndComplianceSettings');
     return client.upsertOneTimeProduct(args.packageName, args.productId, body, {
       allowMissing: true,
+      updateMask: updateFields.join(','),
       regionsVersionVersion: args.regionsVersion,
     });
   },
@@ -898,7 +1163,7 @@ const updateOneTimeProduct: ToolDef = {
   description: 'Update an existing one-time product. Pass the full desired listings/purchaseOptions state plus an updateMask (e.g. "listings,purchaseOptions").',
   schema: z.object({
     ...oneTimeProductBody,
-    updateMask: z.string().describe('Comma-separated field mask of top-level fields to update, e.g. "listings,purchaseOptions"'),
+    updateMask: z.string().min(1).describe('Comma-separated field mask of top-level fields to update, e.g. "listings,purchaseOptions"'),
   }),
   handler: async (client, args) => {
     const body = buildOneTimeProduct(args);
@@ -973,7 +1238,7 @@ export const googleTools: ToolDef[] = [
   // In-App Products
   listInAppProducts, getInAppProduct, createInAppProduct, updateInAppProduct, deleteInAppProduct,
   // Subscriptions
-  listSubscriptions, getSubscription, createSubscription, archiveSubscription,
+  listSubscriptions, getSubscription, createSubscription,
   activateBasePlan, deactivateBasePlan,
   // One-time Products
   listOneTimeProducts, getOneTimeProduct, createOneTimeProduct, updateOneTimeProduct, deleteOneTimeProduct,
