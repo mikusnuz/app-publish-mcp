@@ -8,18 +8,29 @@ startCommand:
       appleKeyId:
         type: string
         description: Apple App Store Connect API Key ID
+      appleKeyType:
+        type: string
+        enum: [TEAM, INDIVIDUAL]
+        default: TEAM
+        description: Apple API key type
       appleIssuerId:
         type: string
-        description: Apple App Store Connect Issuer ID
+        description: Apple App Store Connect Issuer ID for TEAM keys
       appleP8Path:
         type: string
         description: Path to Apple AuthKey .p8 file
-      appleVendorNumber:
-        type: string
-        description: Apple vendor number for sales/finance reports (optional)
       googleServiceAccountPath:
         type: string
         description: Path to Google Play service account JSON key file
+      googleClientId:
+        type: string
+        description: Google Desktop OAuth client ID
+      googleClientSecret:
+        type: string
+        description: Google Desktop OAuth client secret
+      googleRefreshToken:
+        type: string
+        description: Google OAuth refresh token
   commandFunction:
     |-
-    config => ({ command: 'npx', args: ['-y', 'app-publish-mcp'], env: { APPLE_KEY_ID: config.appleKeyId || '', APPLE_ISSUER_ID: config.appleIssuerId || '', APPLE_P8_PATH: config.appleP8Path || '', APPLE_VENDOR_NUMBER: config.appleVendorNumber || '', GOOGLE_SERVICE_ACCOUNT_PATH: config.googleServiceAccountPath || '' } })
+    config => ({ command: 'npx', args: ['-y', 'app-publish-mcp'], env: { APPLE_KEY_ID: config.appleKeyId || '', APPLE_KEY_TYPE: config.appleKeyType || 'TEAM', APPLE_ISSUER_ID: config.appleIssuerId || '', APPLE_P8_PATH: config.appleP8Path || '', GOOGLE_SERVICE_ACCOUNT_PATH: config.googleServiceAccountPath || '', GOOGLE_CLIENT_ID: config.googleClientId || '', GOOGLE_CLIENT_SECRET: config.googleClientSecret || '', GOOGLE_REFRESH_TOKEN: config.googleRefreshToken || '' } })

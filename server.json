@@ -6,12 +6,12 @@
     "url": "https://github.com/mikusnuz/app-publish-mcp",
     "source": "github"
   },
-  "version": "0.4.0",
+  "version": "0.5.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "app-publish-mcp",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "transport": {
         "type": "stdio"
       },
@@ -24,8 +24,15 @@
           "isSecret": true
         },
         {
+          "name": "APPLE_KEY_TYPE",
+          "description": "Apple API key type: TEAM (default) or INDIVIDUAL",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
           "name": "APPLE_ISSUER_ID",
-          "description": "Apple App Store Connect Issuer ID",
+          "description": "Apple App Store Connect Issuer ID for TEAM keys",
           "isRequired": false,
           "format": "string",
           "isSecret": true
@@ -43,6 +50,27 @@
           "isRequired": false,
           "format": "string",
           "isSecret": false
+        },
+        {
+          "name": "GOOGLE_CLIENT_ID",
+          "description": "Google Desktop OAuth client ID",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "GOOGLE_CLIENT_SECRET",
+          "description": "Google Desktop OAuth client secret",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "GOOGLE_REFRESH_TOKEN",
+          "description": "Google OAuth refresh token",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
         }
       ]
     }

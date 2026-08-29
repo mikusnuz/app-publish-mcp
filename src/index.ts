@@ -6,7 +6,7 @@ import { GoogleClient } from './google/client.js';
 import { appleTools } from './apple/tools.js';
 import { googleTools } from './google/tools.js';
 import { loadSavedGoogleToken } from './auth.js';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { z } from 'zod';
@@ -14,6 +14,13 @@ import { z } from 'zod';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
+
+// Load a project-local .env when present, with the package root as a fallback
+// for direct checkouts. Existing process values and the working directory win.
+const envPaths = [join(process.cwd(), '.env'), join(__dirname, '..', '.env')];
+for (const envPath of new Set(envPaths)) {
+  if (existsSync(envPath)) process.loadEnvFile(envPath);
+}
 
 const server = new McpServer({
   name: 'app-publish-mcp',
@@ -34,7 +41,6 @@ if (appleKeyId && appleP8Path && (appleKeyType === 'INDIVIDUAL' || appleIssuerId
     keyId: appleKeyId,
     issuerId: appleIssuerId,
     p8Path: appleP8Path,
-    vendorNumber: process.env.APPLE_VENDOR_NUMBER,
     keyType: appleKeyType,
   });
 }
@@ -80,7 +86,7 @@ for (const tool of googleTools) {
   server.tool(tool.name, tool.description, tool.schema.shape, async (args: any) => {
     if (!googleClient) {
       return {
-        content: [{ type: 'text' as const, text: 'Google client not configured. Set GOOGLE_SERVICE_ACCOUNT_PATH env var.' }],
+        content: [{ type: 'text' as const, text: 'Google client not configured. Set GOOGLE_SERVICE_ACCOUNT_PATH, provide GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REFRESH_TOKEN, or run app-publish-mcp auth google.' }],
         isError: true,
       };
     }
@@ -97,7 +103,7 @@ for (const tool of googleTools) {
 
 server.prompt(
   'app_release_checklist',
-  'Guided checklist for releasing an app update on iOS and/or Android. Walks through each step from version creation to submission.',
+  'Guided checklist for releasing an app update on iOS and/or Android, from signed artifact upload through review and release status.',
   {
     platform: z.enum(['ios', 'android', 'both']).describe('Target platform(s) for the release'),
     appId: z.string().describe('App ID (Apple App ID or Android package name)'),
@@ -112,29 +118,32 @@ server.prompt(
           text: [
             `Guide me through releasing version ${version} for app ${appId} on ${platform === 'both' ? 'iOS and Android' : platform === 'ios' ? 'iOS' : 'Android'}.`,
             '',
+            'Prerequisite: first-time store setup is complete and the user has supplied a correctly signed build artifact.',
+            '',
             platform === 'ios' || platform === 'both' ? [
               '## iOS Release Checklist',
               '1. Use apple_list_apps to verify the app exists and get the app ID',
-              '2. Use apple_list_builds to check for an uploaded build matching this version',
-              '3. Use apple_create_version to create a new App Store version',
-              '4. Use apple_list_version_localizations to get existing localizations',
-              '5. Use apple_update_version_localization to update whatsNew / release notes for each locale',
-              '6. Use apple_assign_build to attach the build to the version',
-              '7. Use apple_update_review_detail to set reviewer contact info and demo account if needed',
-              '8. Use apple_get_age_rating to verify age rating is correct',
-              '9. Use apple_submit_for_review to submit for App Review',
+              '2. Use apple_create_version or apple_update_version plus the localization tools to prepare the version, release settings, and metadata',
+              '3. Use apple_upload_build to upload the signed IPA and wait for import; resume an asynchronous upload with apple_get_build_upload or apple_wait_for_build_upload',
+              '4. Use apple_set_build_encryption to answer export-compliance encryption for the imported build; if true, the user may still need a manual encryption declaration, supporting documents, and appEncryptionDeclaration linkage in App Store Connect',
+              '5. Use apple_assign_build to attach the imported build to the version',
+              '6. Use apple_update_review_detail and apple_get_age_rating to verify review metadata',
+              '7. Use apple_submit_for_review to submit for App Review',
+              '8. For an update (not a first version), optionally configure a seven-day phased release before release',
+              '9. After approval, call apple_release_version only when the version is PENDING_DEVELOPER_RELEASE, then monitor or manage any phased release',
               '',
             ].join('\n') : '',
             platform === 'android' || platform === 'both' ? [
               '## Android Release Checklist',
-              '1. Use google_create_edit to start an edit session',
-              '2. Use google_get_details to verify app details are current',
-              '3. Use google_list_listings to check store listings across languages',
-              '4. Use google_update_listing to update descriptions / release notes for each language',
-              '5. Use google_upload_bundle to upload the .aab if not already uploaded',
-              '6. Use google_create_release to create a release on the target track (e.g. production)',
+              '1. Use google_create_edit to start an edit, or google_get_edit to verify a resumed edit',
+              '2. Use google_get_details and the listing tools to verify store metadata',
+              '3. Use google_list_bundles or google_list_apks to reuse an artifact already in the edit',
+              '4. Use google_upload_bundle or google_upload_apk only when the artifact is missing',
+              '5. If needed, use google_update_data_safety only with a current, user-reviewed CSV export',
+              '6. Use google_create_release to create the target-track release with the exact versionCodes set',
               '7. Use google_validate_edit to check for errors before committing',
-              '8. Use google_commit_edit to publish the changes',
+              '8. Use google_commit_edit to commit the changes. Store review, managed publishing, or a staged rollout can delay public availability.',
+              '9. Use google_list_release_statuses after commit to inspect review and publishing state',
               '',
             ].join('\n') : '',
             'For each step, confirm the result before proceeding. Report any errors and suggest fixes.',
@@ -215,7 +224,6 @@ server.resource(
         keyId: appleKeyId ? `${appleKeyId.slice(0, 4)}...` : null,
         issuerId: appleIssuerId ? `${appleIssuerId.slice(0, 8)}...` : null,
         keyType: appleKeyType,
-        vendorNumber: process.env.APPLE_VENDOR_NUMBER ? 'set' : null,
       },
       google: {
         connected: !!googleClient,

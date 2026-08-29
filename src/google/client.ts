@@ -1,6 +1,7 @@
 import { google, androidpublisher_v3 } from 'googleapis';
 import { GoogleAuth, OAuth2Client } from 'google-auth-library';
 import { createReadStream } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 
 export type ChangesInReviewBehavior = 'CANCEL_IN_REVIEW_AND_SUBMIT' | 'ERROR_IF_IN_REVIEW';
@@ -52,6 +53,11 @@ export class GoogleClient {
   async createEdit(packageName: string): Promise<string> {
     const res = await this.publisher.edits.insert({ packageName });
     return res.data.id!;
+  }
+
+  async getEdit(packageName: string, editId: string) {
+    const res = await this.publisher.edits.get({ packageName, editId });
+    return res.data;
   }
 
   async commitEdit(
@@ -237,6 +243,13 @@ export class GoogleClient {
     return res.data;
   }
 
+  async listReleaseSummaries(packageName: string, track: string) {
+    const res = await this.publisher.applications.tracks.releases.list({
+      parent: `applications/${packageName}/tracks/${track}`,
+    });
+    return res.data.releases ?? [];
+  }
+
   async updateTrack(
     packageName: string,
     editId: string,
@@ -251,6 +264,11 @@ export class GoogleClient {
   }
 
   // ─── Bundles ───
+  async listBundles(packageName: string, editId: string) {
+    const res = await this.publisher.edits.bundles.list({ packageName, editId });
+    return res.data.bundles ?? [];
+  }
+
   async uploadBundle(packageName: string, editId: string, bundlePath: string) {
     const media = {
       mimeType: 'application/octet-stream',
@@ -272,6 +290,27 @@ export class GoogleClient {
       packageName, editId,
       media,
     } as any, { timeout: UPLOAD_TIMEOUT_MS, retry: false });
+    return res.data;
+  }
+
+  async listApks(packageName: string, editId: string) {
+    const res = await this.publisher.edits.apks.list({ packageName, editId });
+    return res.data.apks ?? [];
+  }
+
+  // ─── Data Safety ───
+  async updateDataSafety(packageName: string, csvPath: string) {
+    if (extname(csvPath).toLowerCase() !== '.csv') {
+      throw new Error('Google Play Data Safety declarations must use a .csv file');
+    }
+    const safetyLabels = await readFile(csvPath, 'utf8');
+    if (safetyLabels.trim() === '') {
+      throw new Error('Google Play Data Safety CSV must not be empty');
+    }
+    const res = await this.publisher.applications.dataSafety({
+      packageName,
+      requestBody: { safetyLabels },
+    });
     return res.data;
   }
 

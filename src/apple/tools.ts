@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync } from 'node:fs';
+import { basename, extname } from 'node:path';
 import { AppleApiError, AppleClient } from './client.js';
 
 // Helper to define a tool
@@ -9,6 +10,41 @@ interface ToolDef {
   description: string;
   schema: z.ZodObject<any>;
   handler: (client: AppleClient, args: any) => Promise<any>;
+}
+
+const releaseTypeSchema = z.enum(['MANUAL', 'AFTER_APPROVAL', 'SCHEDULED']);
+const isoDateTimeSchema = z.string().datetime({ offset: true });
+const calendarDateSchema = z.string().date();
+
+function validateVersionReleaseSchedule(args: {
+  releaseType?: string;
+  earliestReleaseDate?: string | null;
+}, partialUpdate = false): void {
+  if (
+    typeof args.earliestReleaseDate === 'string'
+    && !isoDateTimeSchema.safeParse(args.earliestReleaseDate).success
+  ) {
+    throw new Error('earliestReleaseDate must be a valid ISO 8601 date-time with a timezone');
+  }
+  if (args.releaseType === 'SCHEDULED') {
+    if (!partialUpdate && typeof args.earliestReleaseDate !== 'string') {
+      throw new Error('SCHEDULED releases require earliestReleaseDate');
+    }
+    if (partialUpdate && args.earliestReleaseDate === null) {
+      throw new Error('releaseType=SCHEDULED cannot be combined with earliestReleaseDate=null');
+    }
+  } else if (
+    typeof args.earliestReleaseDate === 'string'
+    && (!partialUpdate || args.releaseType !== undefined)
+  ) {
+    throw new Error('earliestReleaseDate is only valid when releaseType is SCHEDULED');
+  }
+}
+
+function validateCalendarDate(value: unknown, fieldName: string): void {
+  if (typeof value === 'string' && !calendarDateSchema.safeParse(value).success) {
+    throw new Error(`${fieldName} must be a valid calendar date in YYYY-MM-DD format`);
+  }
 }
 
 function assertOfficialAppleApiUrl(value: string): void {
@@ -54,6 +90,179 @@ async function getAllApplePages(
   };
 }
 
+async function getFileSha256(filePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) {
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
+
+function errorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isDefinitiveAppleMutationError(error: unknown): boolean {
+  return error instanceof AppleApiError
+    && error.status >= 400
+    && error.status < 500
+    && ![408, 409, 429].includes(error.status);
+}
+
+async function cleanupBuildUploadReservation(
+  client: AppleClient,
+  buildUploadId: string,
+): Promise<string> {
+  try {
+    await client.request(`/buildUploads/${buildUploadId}`, { method: 'DELETE' });
+    return 'reservation cleanup succeeded';
+  } catch (error) {
+    return `reservation cleanup failed: ${errorDetail(error)}`;
+  }
+}
+
+async function getBuildUploadStatus(client: AppleClient, buildUploadId: string): Promise<any> {
+  return client.request(`/buildUploads/${buildUploadId}`, {
+    params: {
+      include: 'build',
+      'fields[builds]': 'version,processingState,usesNonExemptEncryption',
+    },
+  });
+}
+
+async function getBuildUploadFileStatus(
+  client: AppleClient,
+  buildUploadFileId: string,
+): Promise<any> {
+  return client.request(`/buildUploadFiles/${buildUploadFileId}`, {
+    params: {
+      'fields[buildUploadFiles]':
+        'assetDeliveryState,sourceFileChecksums,fileName,fileSize',
+    },
+  });
+}
+
+async function throwBuildUploadFailure(
+  client: AppleClient,
+  buildUploadId: string,
+  details: unknown,
+): Promise<never> {
+  const cleanupResult = await cleanupBuildUploadReservation(client, buildUploadId);
+  throw new Error(
+    `Apple build upload ${buildUploadId} failed: ${JSON.stringify(details ?? [])}; ${cleanupResult}`,
+  );
+}
+
+async function reconcileBuildUploadFileCommit(
+  client: AppleClient,
+  buildUploadId: string,
+  buildUploadFileId: string,
+  commitBody: any,
+  initialCommitError: unknown,
+): Promise<any> {
+  let commitError = initialCommitError;
+
+  for (let observation = 0; observation < 2; observation += 1) {
+    const [fileResult, uploadResult] = await Promise.allSettled([
+      getBuildUploadFileStatus(client, buildUploadFileId),
+      getBuildUploadStatus(client, buildUploadId),
+    ]);
+    if (fileResult.status === 'rejected' || uploadResult.status === 'rejected') {
+      const fileDetail = fileResult.status === 'rejected'
+        ? errorDetail(fileResult.reason)
+        : 'status read succeeded';
+      const uploadDetail = uploadResult.status === 'rejected'
+        ? errorDetail(uploadResult.reason)
+        : 'status read succeeded';
+      throw new Error(
+        `Apple build upload ${buildUploadId} file ${buildUploadFileId} commit outcome is ambiguous; no cleanup was attempted. Commit error: ${errorDetail(commitError)}. Reconciliation failed (file: ${fileDetail}; upload: ${uploadDetail})`,
+      );
+    }
+
+    const fileResponse = fileResult.value;
+    const uploadResponse = uploadResult.value;
+    const fileState = fileResponse.data?.attributes?.assetDeliveryState?.state;
+    const uploadState = uploadResponse.data?.attributes?.state?.state;
+
+    if (fileState === 'FAILED' || uploadState === 'FAILED') {
+      await throwBuildUploadFailure(client, buildUploadId, {
+        file: fileResponse.data?.attributes?.assetDeliveryState?.errors ?? [],
+        buildUpload: uploadResponse.data?.attributes?.state?.errors ?? [],
+      });
+    }
+
+    if (
+      fileState === 'UPLOAD_COMPLETE'
+      || fileState === 'COMPLETE'
+      || uploadState === 'PROCESSING'
+      || uploadState === 'COMPLETE'
+    ) {
+      return fileResponse;
+    }
+
+    if (fileState === 'AWAITING_UPLOAD' && uploadState === 'AWAITING_UPLOAD') {
+      if (observation === 0) {
+        try {
+          return await client.request(`/buildUploadFiles/${buildUploadFileId}`, {
+            method: 'PATCH',
+            body: commitBody,
+          });
+        } catch (error) {
+          commitError = error;
+          continue;
+        }
+      }
+
+      throw new Error(
+        `Apple build upload ${buildUploadId} file ${buildUploadFileId} commit outcome is ambiguous; retained for reconciliation and no cleanup was attempted. Both resources remained AWAITING_UPLOAD after an idempotent commit retry. ${errorDetail(commitError)}`,
+      );
+    }
+
+    throw new Error(
+      `Apple build upload ${buildUploadId} file ${buildUploadFileId} commit outcome is ambiguous; no cleanup was attempted. Commit error: ${errorDetail(commitError)}. Observed file state ${String(fileState)} and upload state ${String(uploadState)}`,
+    );
+  }
+
+  throw new Error(
+    `Apple build upload ${buildUploadId} file ${buildUploadFileId} commit outcome is ambiguous; no cleanup was attempted`,
+  );
+}
+
+async function waitForBuildUploadStatus(
+  client: AppleClient,
+  buildUploadId: string,
+  timeoutSeconds: number,
+  pollIntervalSeconds: number,
+): Promise<any> {
+  const deadline = Date.now() + timeoutSeconds * 1_000;
+
+  while (true) {
+    const response = await getBuildUploadStatus(client, buildUploadId);
+    const state = response.data?.attributes?.state?.state;
+    if (state === 'COMPLETE') return response;
+    if (state === 'FAILED') {
+      const details = response.data?.attributes?.state?.errors;
+      await throwBuildUploadFailure(client, buildUploadId, details);
+    }
+    if (state !== 'AWAITING_UPLOAD' && state !== 'PROCESSING') {
+      throw new Error(
+        `Apple build upload ${buildUploadId} returned an unknown state: ${String(state)}`,
+      );
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out after ${timeoutSeconds} seconds waiting for Apple build upload ${buildUploadId}; last state: ${state}`,
+      );
+    }
+
+    const remainingMs = Math.max(0, deadline - Date.now());
+    await new Promise(resolve => setTimeout(
+      resolve,
+      Math.min(pollIntervalSeconds * 1_000, remainingMs),
+    ));
+  }
+}
+
 // ═══════════════════════════════════════════
 // 1. App Management
 // ═══════════════════════════════════════════
@@ -93,6 +302,40 @@ const getApp: ToolDef = {
   handler: async (client, args) => {
     return client.request(`/apps/${args.appId}`, {
       params: { 'include': 'appStoreVersions,appInfos' },
+    });
+  },
+};
+
+const updateApp: ToolDef = {
+  name: 'apple_update_app',
+  description:
+    'Update app-level submission settings: the content-rights declaration and primary locale',
+  schema: z.object({
+    appId: z.string().min(1).describe('App ID'),
+    contentRightsDeclaration: z.enum([
+      'DOES_NOT_USE_THIRD_PARTY_CONTENT',
+      'USES_THIRD_PARTY_CONTENT',
+    ]).nullable().optional(),
+    primaryLocale: z.string().min(1).nullable().optional(),
+  }),
+  handler: async (client, args) => {
+    const { appId, ...values } = args;
+    const attributes = Object.fromEntries(
+      Object.entries(values).filter(([, value]) => value !== undefined),
+    );
+    if (Object.keys(attributes).length === 0) {
+      throw new Error('At least one app attribute must be provided');
+    }
+
+    return client.request(`/apps/${appId}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'apps',
+          id: appId,
+          attributes,
+        },
+      },
     });
   },
 };
@@ -202,21 +445,25 @@ const createVersion: ToolDef = {
   name: 'apple_create_version',
   description: 'Create a new App Store version for submission',
   schema: z.object({
-    appId: z.string().describe('App ID'),
-    versionString: z.string().describe('Version (e.g. 1.0.0)'),
+    appId: z.string().min(1).describe('App ID'),
+    versionString: z.string().min(1).describe('Version (e.g. 1.0.0)'),
     platform: z.enum(['IOS', 'MAC_OS', 'TV_OS', 'VISION_OS']).default('IOS'),
-    releaseType: z.enum(['MANUAL', 'AFTER_APPROVAL', 'SCHEDULED']).optional(),
-    earliestReleaseDate: z.string().optional().describe('ISO 8601 date for scheduled release'),
+    releaseType: releaseTypeSchema.optional(),
+    earliestReleaseDate: isoDateTimeSchema.optional()
+      .describe('ISO 8601 date-time with timezone; required only for SCHEDULED releases'),
     copyright: z.string().optional(),
   }),
   handler: async (client, args) => {
+    validateVersionReleaseSchedule(args);
     const attributes: any = {
       versionString: args.versionString,
       platform: args.platform,
     };
-    if (args.releaseType) attributes.releaseType = args.releaseType;
-    if (args.earliestReleaseDate) attributes.earliestReleaseDate = args.earliestReleaseDate;
-    if (args.copyright) attributes.copyright = args.copyright;
+    if (args.releaseType !== undefined) attributes.releaseType = args.releaseType;
+    if (args.earliestReleaseDate !== undefined) {
+      attributes.earliestReleaseDate = args.earliestReleaseDate;
+    }
+    if (args.copyright !== undefined) attributes.copyright = args.copyright;
 
     return client.request('/appStoreVersions', {
       method: 'POST',
@@ -227,6 +474,41 @@ const createVersion: ToolDef = {
           relationships: {
             app: { data: { type: 'apps', id: args.appId } },
           },
+        },
+      },
+    });
+  },
+};
+
+const updateVersion: ToolDef = {
+  name: 'apple_update_version',
+  description:
+    'Update an existing App Store version\'s version, copyright, or release timing',
+  schema: z.object({
+    versionId: z.string().min(1).describe('App Store Version ID'),
+    versionString: z.string().min(1).optional(),
+    copyright: z.string().nullable().optional(),
+    releaseType: releaseTypeSchema.optional(),
+    earliestReleaseDate: isoDateTimeSchema.nullable().optional()
+      .describe('ISO 8601 date-time with timezone; required for SCHEDULED releases'),
+  }),
+  handler: async (client, args) => {
+    validateVersionReleaseSchedule(args, true);
+    const { versionId, ...values } = args;
+    const attributes = Object.fromEntries(
+      Object.entries(values).filter(([, value]) => value !== undefined),
+    );
+    if (Object.keys(attributes).length === 0) {
+      throw new Error('At least one App Store version attribute must be provided');
+    }
+
+    return client.request(`/appStoreVersions/${versionId}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'appStoreVersions',
+          id: versionId,
+          attributes,
         },
       },
     });
@@ -362,7 +644,7 @@ const createScreenshotSet: ToolDef = {
 
 const uploadScreenshot: ToolDef = {
   name: 'apple_upload_screenshot',
-  description: 'Upload a screenshot (reserves slot, then uploads binary)',
+  description: 'Upload and commit a screenshot while preserving its ID for safe recovery after ambiguous failures',
   schema: z.object({
     screenshotSetId: z.string().describe('Screenshot Set ID'),
     filePath: z.string().describe('Local path to the screenshot image'),
@@ -399,32 +681,128 @@ const uploadScreenshot: ToolDef = {
       },
     });
 
-    // Step 2: Upload binary to each upload operation URL.
-    // Apple returns pre-signed S3 operations with their own requestHeaders —
-    // honor them exactly; don't inject a Bearer token or Content-Type.
     const screenshot = reservation.data;
-    const operations = screenshot.attributes.uploadOperations;
-
-    for (const op of operations) {
-      await client.uploadOperation(op, args.filePath);
+    const screenshotId = screenshot?.id;
+    if (typeof screenshotId !== 'string' || screenshotId.length === 0) {
+      throw new Error(
+        'Apple screenshot reservation succeeded but no screenshotId was returned; automatic cleanup is not possible',
+      );
     }
 
-    // Step 3: Commit
-    await client.request(`/appScreenshots/${screenshot.id}`, {
-      method: 'PATCH',
-      body: {
-        data: {
-          type: 'appScreenshots',
-          id: screenshot.id,
-          attributes: {
-            uploaded: true,
-            sourceFileChecksum,
-          },
+    const cleanupReservation = async (): Promise<string> => {
+      try {
+        await client.request(`/appScreenshots/${screenshotId}`, { method: 'DELETE' });
+        return 'reservation cleanup succeeded';
+      } catch (error) {
+        return `reservation cleanup failed: ${errorDetail(error)}`;
+      }
+    };
+    const getDeliveryStatus = async (): Promise<any> => client.request(
+      `/appScreenshots/${screenshotId}`,
+      {
+        params: {
+          'fields[appScreenshots]':
+            'assetDeliveryState,sourceFileChecksum,fileName,fileSize',
         },
       },
+    );
+
+    // Apple returns pre-signed upload operations with their own request headers.
+    const operations = screenshot?.attributes?.uploadOperations;
+    if (!Array.isArray(operations) || operations.length === 0) {
+      const cleanupResult = await cleanupReservation();
+      throw new Error(
+        `Apple screenshot ${screenshotId} reservation did not include upload operations; ${cleanupResult}`,
+      );
+    }
+    try {
+      for (const operation of operations) {
+        await client.uploadOperation(operation, args.filePath);
+      }
+    } catch (error) {
+      const cleanupResult = await cleanupReservation();
+      throw new Error(
+        `Apple screenshot ${screenshotId} failed before commit; ${cleanupResult}. ${errorDetail(error)}`,
+      );
+    }
+
+    const commitBody = {
+      data: {
+        type: 'appScreenshots',
+        id: screenshotId,
+        attributes: {
+          uploaded: true,
+          sourceFileChecksum,
+        },
+      },
+    };
+    const commit = (): Promise<any> => client.request(`/appScreenshots/${screenshotId}`, {
+      method: 'PATCH',
+      body: commitBody,
     });
 
-    return { success: true, screenshotId: screenshot.id };
+    try {
+      await commit();
+    } catch (initialCommitError) {
+      if (isDefinitiveAppleMutationError(initialCommitError)) {
+        const cleanupResult = await cleanupReservation();
+        throw new Error(
+          `Apple screenshot ${screenshotId} commit was rejected; ${cleanupResult}. ${errorDetail(initialCommitError)}`,
+        );
+      }
+
+      let commitError = initialCommitError;
+      let committed = false;
+      for (let observation = 0; observation < 2; observation += 1) {
+        let statusResponse: any;
+        try {
+          statusResponse = await getDeliveryStatus();
+        } catch (statusError) {
+          throw new Error(
+            `Apple screenshot ${screenshotId} commit outcome is ambiguous; screenshot was retained and no cleanup was attempted. Commit error: ${errorDetail(commitError)}. Status read failed: ${errorDetail(statusError)}`,
+          );
+        }
+
+        const deliveryState = statusResponse.data?.attributes?.assetDeliveryState;
+        const state = deliveryState?.state;
+        if (state === 'UPLOAD_COMPLETE' || state === 'COMPLETE') {
+          committed = true;
+          break;
+        }
+        if (state === 'FAILED') {
+          const cleanupResult = await cleanupReservation();
+          throw new Error(
+            `Apple screenshot ${screenshotId} delivery failed: ${JSON.stringify(deliveryState?.errors ?? [])}; ${cleanupResult}. Commit error: ${errorDetail(commitError)}`,
+          );
+        }
+        if (state !== 'AWAITING_UPLOAD') {
+          throw new Error(
+            `Apple screenshot ${screenshotId} commit outcome is ambiguous; screenshot was retained and no cleanup was attempted. Commit error: ${errorDetail(commitError)}. Observed assetDeliveryState ${String(state)}`,
+          );
+        }
+        if (observation === 1) {
+          throw new Error(
+            `Apple screenshot ${screenshotId} commit outcome is ambiguous; screenshot was retained and no cleanup was attempted. It remained AWAITING_UPLOAD after an idempotent commit retry. ${errorDetail(commitError)}`,
+          );
+        }
+
+        try {
+          await commit();
+          committed = true;
+          break;
+        } catch (retryError) {
+          commitError = retryError;
+        }
+      }
+
+      if (!committed) {
+        throw new Error(
+          `Apple screenshot ${screenshotId} commit outcome is ambiguous; screenshot was retained and no cleanup was attempted`,
+        );
+      }
+    }
+
+    return { success: true, screenshotId };
   },
 };
 
@@ -460,6 +838,303 @@ const listBuilds: ToolDef = {
     if (args.limit) params['limit'] = String(args.limit);
     if (args.preReleaseVersion) params['filter[preReleaseVersion.version]'] = args.preReleaseVersion;
     return client.request('/builds', { params });
+  },
+};
+
+const getBuildUpload: ToolDef = {
+  name: 'apple_get_build_upload',
+  description:
+    'Get the current state of a Build Uploads API operation, including the imported build when available',
+  schema: z.object({
+    buildUploadId: z.string().min(1).describe('Build Upload ID'),
+  }),
+  handler: async (client, args) => {
+    return getBuildUploadStatus(client, args.buildUploadId);
+  },
+};
+
+const deleteBuildUpload: ToolDef = {
+  name: 'apple_delete_build_upload',
+  description:
+    'Explicitly discard an AWAITING_UPLOAD or FAILED Build Upload after checking it with apple_get_build_upload; do not use for PROCESSING or COMPLETE uploads',
+  schema: z.object({
+    buildUploadId: z.string().min(1).describe('Build Upload ID to discard'),
+  }),
+  handler: async (client, args) => {
+    const status = await getBuildUploadStatus(client, args.buildUploadId);
+    const state = status.data?.attributes?.state?.state;
+    if (state !== 'AWAITING_UPLOAD' && state !== 'FAILED') {
+      throw new Error(
+        `Apple build upload ${args.buildUploadId} cannot be deleted in state ${String(state)}; only AWAITING_UPLOAD or FAILED reservations can be discarded`,
+      );
+    }
+
+    await client.request(`/buildUploads/${args.buildUploadId}`, { method: 'DELETE' });
+    return {
+      success: true,
+      buildUploadId: args.buildUploadId,
+      previousState: state,
+    };
+  },
+};
+
+const waitForBuildUpload: ToolDef = {
+  name: 'apple_wait_for_build_upload',
+  description:
+    'Wait until a Build Uploads API operation completes or fails, returning the imported build relationship on success',
+  schema: z.object({
+    buildUploadId: z.string().min(1).describe('Build Upload ID'),
+    timeoutSeconds: z.number().int().min(1).max(7200).default(1800),
+    pollIntervalSeconds: z.number().int().min(1).max(60).default(10),
+  }),
+  handler: async (client, args) => {
+    return waitForBuildUploadStatus(
+      client,
+      args.buildUploadId,
+      args.timeoutSeconds,
+      args.pollIntervalSeconds,
+    );
+  },
+};
+
+const uploadBuild: ToolDef = {
+  name: 'apple_upload_build',
+  description:
+    'Upload a signed IPA through the App Store Connect Build Uploads API: reserve the upload and file, send every presigned range, commit its SHA-256 checksum, and optionally wait for import',
+  schema: z.object({
+    appId: z.string().min(1).describe('App ID'),
+    filePath: z.string().min(1).describe('Local path to a signed .ipa file'),
+    versionString: z.string().min(1).describe('CFBundleShortVersionString, e.g. 1.2.0'),
+    buildNumber: z.string().min(1).describe('CFBundleVersion, e.g. 42'),
+    platform: z.enum(['IOS', 'TV_OS', 'VISION_OS']).default('IOS'),
+    expectedFileSize: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional()
+      .describe('Optional expected IPA size in bytes; checked locally before any API request'),
+    expectedSha256: z.string().regex(/^[a-fA-F0-9]{64}$/).optional()
+      .describe('Optional expected SHA-256 hex digest; checked locally before any API request'),
+    waitForProcessing: z.boolean().default(true)
+      .describe('Wait for the Build Upload to reach COMPLETE or FAILED'),
+    timeoutSeconds: z.number().int().min(1).max(7200).default(1800),
+    pollIntervalSeconds: z.number().int().min(1).max(60).default(10),
+  }),
+  handler: async (client, args) => {
+    if (extname(args.filePath).toLowerCase() !== '.ipa') {
+      throw new Error('Apple build upload requires a .ipa file');
+    }
+
+    const fileStats = statSync(args.filePath);
+    if (!fileStats.isFile()) {
+      throw new Error('Apple build upload path must point to a regular file');
+    }
+    const fileSize = fileStats.size;
+    if (!Number.isSafeInteger(fileSize) || fileSize < 1) {
+      throw new Error(`Apple build upload file has an invalid size: ${fileSize}`);
+    }
+    if (args.expectedFileSize !== undefined && args.expectedFileSize !== fileSize) {
+      throw new Error(
+        `IPA fileSize mismatch: expected ${args.expectedFileSize}, actual ${fileSize}`,
+      );
+    }
+
+    const sha256 = await getFileSha256(args.filePath);
+    if (
+      args.expectedSha256 !== undefined
+      && args.expectedSha256.toLowerCase() !== sha256
+    ) {
+      throw new Error(
+        `IPA SHA-256 mismatch: expected ${args.expectedSha256.toLowerCase()}, actual ${sha256}`,
+      );
+    }
+
+    const buildUpload = await client.request('/buildUploads', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'buildUploads',
+          attributes: {
+            cfBundleShortVersionString: args.versionString,
+            cfBundleVersion: args.buildNumber,
+            platform: args.platform,
+          },
+          relationships: {
+            app: { data: { type: 'apps', id: args.appId } },
+          },
+        },
+      },
+    });
+    const buildUploadId = buildUpload.data?.id;
+    if (typeof buildUploadId !== 'string' || buildUploadId.length === 0) {
+      throw new Error('Apple API response did not include a Build Upload ID');
+    }
+
+    const fileName = basename(args.filePath);
+    let buildUploadFileId: string;
+    try {
+      const buildUploadFile = await client.request('/buildUploadFiles', {
+        method: 'POST',
+        body: {
+          data: {
+            type: 'buildUploadFiles',
+            attributes: {
+              assetType: 'ASSET',
+              fileName,
+              fileSize,
+              uti: 'com.apple.ipa',
+            },
+            relationships: {
+              buildUpload: { data: { type: 'buildUploads', id: buildUploadId } },
+            },
+          },
+        },
+      });
+      buildUploadFileId = buildUploadFile.data?.id;
+      if (typeof buildUploadFileId !== 'string' || buildUploadFileId.length === 0) {
+        throw new Error('Apple API response did not include a Build Upload File ID');
+      }
+      const operations = buildUploadFile.data?.attributes?.uploadOperations;
+      if (!Array.isArray(operations) || operations.length === 0) {
+        throw new Error('Apple API response did not include build upload operations');
+      }
+
+      const ranges = operations.map((operation: any) => {
+        const offset = operation.offset ?? 0;
+        const length = operation.length ?? fileSize - offset;
+        if (!Number.isSafeInteger(offset) || offset < 0) {
+          throw new Error(`Apple build upload operation has an invalid offset: ${offset}`);
+        }
+        if (!Number.isSafeInteger(length) || length < 1 || offset + length > fileSize) {
+          throw new Error(
+            `Apple build upload operation has an invalid range: offset ${offset}, length ${length}, fileSize ${fileSize}`,
+          );
+        }
+        return { offset, length };
+      }).sort((left: any, right: any) => left.offset - right.offset);
+
+      let nextOffset = 0;
+      for (const range of ranges) {
+        if (range.offset !== nextOffset) {
+          throw new Error(
+            `Apple build upload operations do not cover the IPA exactly at byte ${nextOffset}`,
+          );
+        }
+        nextOffset += range.length;
+      }
+      if (nextOffset !== fileSize) {
+        throw new Error(
+          `Apple build upload operations cover ${nextOffset} of ${fileSize} IPA bytes`,
+        );
+      }
+
+      for (const operation of operations) {
+        await client.uploadOperation(operation, args.filePath);
+      }
+    } catch (error) {
+      const cleanupResult = await cleanupBuildUploadReservation(client, buildUploadId);
+      throw new Error(
+        `Apple build upload ${buildUploadId} failed before processing; ${cleanupResult}. ${errorDetail(error)}`,
+      );
+    }
+
+    const commitBody = {
+      data: {
+        type: 'buildUploadFiles',
+        id: buildUploadFileId,
+        attributes: {
+          sourceFileChecksums: {
+            file: {
+              hash: sha256,
+              algorithm: 'SHA_256',
+            },
+          },
+          uploaded: true,
+        },
+      },
+    };
+    let committedFile: any;
+    try {
+      committedFile = await client.request(`/buildUploadFiles/${buildUploadFileId}`, {
+        method: 'PATCH',
+        body: commitBody,
+      });
+    } catch (error) {
+      if (isDefinitiveAppleMutationError(error)) {
+        const cleanupResult = await cleanupBuildUploadReservation(client, buildUploadId);
+        throw new Error(
+          `Apple build upload ${buildUploadId} file ${buildUploadFileId} commit was rejected; ${cleanupResult}. ${errorDetail(error)}`,
+        );
+      }
+      committedFile = await reconcileBuildUploadFileCommit(
+        client,
+        buildUploadId,
+        buildUploadFileId,
+        commitBody,
+        error,
+      );
+    }
+
+    const status = args.waitForProcessing === false
+      ? await getBuildUploadStatus(client, buildUploadId)
+      : await waitForBuildUploadStatus(
+          client,
+          buildUploadId,
+          args.timeoutSeconds,
+          args.pollIntervalSeconds,
+        );
+    const statusState = status.data?.attributes?.state?.state;
+    if (statusState === 'FAILED') {
+      const details = status.data?.attributes?.state?.errors;
+      await throwBuildUploadFailure(client, buildUploadId, details);
+    }
+    if (!['AWAITING_UPLOAD', 'PROCESSING', 'COMPLETE'].includes(statusState)) {
+      throw new Error(
+        `Apple build upload ${buildUploadId} returned an unknown state: ${String(statusState)}`,
+      );
+    }
+
+    return {
+      success: true,
+      completed: statusState === 'COMPLETE',
+      buildUploadId,
+      buildUploadFileId,
+      fileName,
+      fileSize,
+      sha256,
+      buildUploadFile: {
+        id: committedFile?.data?.id ?? buildUploadFileId,
+        assetDeliveryState: committedFile?.data?.attributes?.assetDeliveryState,
+        sourceFileChecksums: committedFile?.data?.attributes?.sourceFileChecksums,
+      },
+      status,
+    };
+  },
+};
+
+const setBuildEncryption: ToolDef = {
+  name: 'apple_set_build_encryption',
+  description:
+    'Set a processed build\'s usesNonExemptEncryption answer before submission; true may also require an app encryption declaration or supporting export-compliance documentation',
+  schema: z.object({
+    buildId: z.string().min(1).describe('Build ID'),
+    usesNonExemptEncryption: z.boolean(),
+  }),
+  handler: async (client, args) => {
+    const response = await client.request(`/builds/${args.buildId}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'builds',
+          id: args.buildId,
+          attributes: {
+            usesNonExemptEncryption: args.usesNonExemptEncryption,
+          },
+        },
+      },
+    });
+    if (!args.usesNonExemptEncryption) return response;
+    return {
+      ...response,
+      exportComplianceNote:
+        'Apple may require an app encryption declaration or supporting export-compliance documentation for this build.',
+    };
   },
 };
 
@@ -616,68 +1291,439 @@ const updateReviewDetail: ToolDef = {
 // 7. Submission
 // ═══════════════════════════════════════════
 
-const submitForReview: ToolDef = {
-  name: 'apple_submit_for_review',
-  description:
-    'Submit an App Store version for review using the reviewSubmissions flow (create a review submission, attach the version, then submit). Replaces the retired appStoreVersionSubmissions create endpoint.',
-  schema: z.object({
-    appId: z.string().describe('App ID'),
-    versionId: z.string().describe('App Store Version ID to submit'),
-    platform: z.enum(['IOS', 'MAC_OS', 'TV_OS', 'VISION_OS']).default('IOS').describe('Platform of the version being submitted'),
-  }),
-  handler: async (client, args) => {
-    // Step 1: create a review submission for the app
-    const submission = await client.request('/reviewSubmissions', {
-      method: 'POST',
-      body: {
-        data: {
-          type: 'reviewSubmissions',
-          attributes: { platform: args.platform },
-          relationships: {
-            app: { data: { type: 'apps', id: args.appId } },
-          },
-        },
-      },
-    });
-    const submissionId = submission.data.id;
+const submittedReviewStates = new Set([
+  'WAITING_FOR_REVIEW',
+  'IN_REVIEW',
+  'UNRESOLVED_ISSUES',
+  'COMPLETING',
+  'COMPLETE',
+]);
 
-    // Step 2: attach the version to the submission
-    try {
-      await client.request('/reviewSubmissionItems', {
-        method: 'POST',
-        body: {
-          data: {
-            type: 'reviewSubmissionItems',
-            relationships: {
-              reviewSubmission: { data: { type: 'reviewSubmissions', id: submissionId } },
-              appStoreVersion: { data: { type: 'appStoreVersions', id: args.versionId } },
-            },
-          },
-        },
-      });
-    } catch (err: any) {
-      const message = err?.message ?? String(err);
-      if (message.includes('usesNonExemptEncryption')) {
-        throw new Error(
-          `${message}\n\nHint: the build is missing its export-compliance answer. Set it by calling ` +
-            `PATCH /v1/builds/<BUILD_ID> with { "data": { "type": "builds", "id": "<BUILD_ID>", "attributes": { "usesNonExemptEncryption": false } } } ` +
-            `(or set ITSAppUsesNonExemptEncryption in the app's Info.plist), then retry apple_submit_for_review.`,
-        );
-      }
-      throw err;
-    }
+function relatedResourceId(response: any, relationship: string, type: string): string | undefined {
+  const relationshipId = response.data?.relationships?.[relationship]?.data?.id;
+  if (typeof relationshipId === 'string') return relationshipId;
+  const included = response.included?.find((resource: any) => resource.type === type);
+  return typeof included?.id === 'string' ? included.id : undefined;
+}
 
-    // Step 3: submit the review submission
-    return client.request(`/reviewSubmissions/${submissionId}`, {
+async function getAppStoreVersionContext(
+  client: AppleClient,
+  versionId: string,
+): Promise<any> {
+  return client.request(`/appStoreVersions/${versionId}`, {
+    params: {
+      include: 'app',
+      'fields[appStoreVersions]': 'platform,app',
+    },
+  });
+}
+
+function assertAppStoreVersionContext(
+  response: any,
+  versionId: string,
+  appId: string,
+  platform: string,
+): void {
+  const actualAppId = relatedResourceId(response, 'app', 'apps');
+  const actualPlatform = response.data?.attributes?.platform;
+  if (response.data?.id !== versionId || actualAppId !== appId || actualPlatform !== platform) {
+    throw new Error(
+      `App Store version ${versionId} does not match app ${appId} and platform ${platform}; received app ${String(actualAppId)} and platform ${String(actualPlatform)}`,
+    );
+  }
+}
+
+async function getReviewSubmission(
+  client: AppleClient,
+  submissionId: string,
+): Promise<any> {
+  return client.request(`/reviewSubmissions/${submissionId}`, {
+    params: {
+      include: 'app',
+      'fields[reviewSubmissions]': 'platform,state,app',
+    },
+  });
+}
+
+function assertReviewSubmissionContext(
+  response: any,
+  submissionId: string,
+  appId: string,
+  platform: string,
+): string {
+  const actualAppId = relatedResourceId(response, 'app', 'apps');
+  const actualPlatform = response.data?.attributes?.platform;
+  const state = response.data?.attributes?.state;
+  if (
+    response.data?.id !== submissionId
+    || actualAppId !== appId
+    || actualPlatform !== platform
+  ) {
+    throw new Error(
+      `Review submission ${submissionId} does not match app ${appId} and platform ${platform}; received app ${String(actualAppId)} and platform ${String(actualPlatform)}`,
+    );
+  }
+  return String(state);
+}
+
+async function listReadyReviewSubmissions(
+  client: AppleClient,
+  appId: string,
+  platform: string,
+): Promise<any> {
+  return getAllApplePages(client, '/reviewSubmissions', {
+    'filter[app]': appId,
+    'filter[platform]': platform,
+    'filter[state]': 'READY_FOR_REVIEW',
+    'fields[reviewSubmissions]': 'platform,state,app',
+    limit: '200',
+  });
+}
+
+async function getReviewSubmissionItems(
+  client: AppleClient,
+  submissionId: string,
+): Promise<any> {
+  return getAllApplePages(client, `/reviewSubmissions/${submissionId}/items`, {
+    include: 'appStoreVersion',
+    'fields[reviewSubmissionItems]': 'state,appStoreVersion',
+    'fields[appStoreVersions]': 'platform',
+    limit: '200',
+  });
+}
+
+function attachedAppStoreVersionIds(itemsResponse: any): string[] {
+  return (Array.isArray(itemsResponse.data) ? itemsResponse.data : [])
+    .map((item: any) => item.relationships?.appStoreVersion?.data?.id)
+    .filter((id: unknown): id is string => typeof id === 'string');
+}
+
+async function cancelReviewSubmissionBestEffort(
+  client: AppleClient,
+  submissionId: string,
+): Promise<string> {
+  try {
+    await client.request(`/reviewSubmissions/${submissionId}`, {
       method: 'PATCH',
       body: {
         data: {
           type: 'reviewSubmissions',
           id: submissionId,
-          attributes: { submitted: true },
+          attributes: { canceled: true },
         },
       },
     });
+    return 'new submission cleanup succeeded';
+  } catch (error) {
+    return `new submission cleanup failed: ${errorDetail(error)}`;
+  }
+}
+
+function submissionRetryHint(submissionId: string): string {
+  return `Retained review submission ${submissionId}; retry apple_submit_for_review with submissionId=${submissionId}.`;
+}
+
+function exportComplianceHint(error: unknown): string {
+  return errorDetail(error).includes('usesNonExemptEncryption')
+    ? ' Set the build export-compliance answer with apple_set_build_encryption, then retry.'
+    : '';
+}
+
+const submitForReview: ToolDef = {
+  name: 'apple_submit_for_review',
+  description:
+    'Create or resume an App Store review submission, attach the version idempotently, and submit it while preserving the submission ID for safe recovery',
+  schema: z.object({
+    appId: z.string().min(1).describe('App ID'),
+    versionId: z.string().min(1).describe('App Store Version ID to submit'),
+    platform: z.enum(['IOS', 'MAC_OS', 'TV_OS', 'VISION_OS']).default('IOS').describe('Platform of the version being submitted'),
+    submissionId: z.string().min(1).optional()
+      .describe('Existing READY_FOR_REVIEW submission ID to resume after an interrupted call'),
+  }),
+  handler: async (client, args) => {
+    let versionContext: any;
+    try {
+      versionContext = await getAppStoreVersionContext(client, args.versionId);
+      assertAppStoreVersionContext(
+        versionContext,
+        args.versionId,
+        args.appId,
+        args.platform,
+      );
+    } catch (error) {
+      const prefix = args.submissionId
+        ? `Review submission ${args.submissionId} cannot be resumed.`
+        : `Cannot create a review submission for app ${args.appId}, platform ${args.platform}.`;
+      throw new Error(`${prefix} ${errorDetail(error)}`);
+    }
+
+    let submissionId = args.submissionId as string | undefined;
+    let createdThisCall = false;
+    let selectedFromPreflight = false;
+    let submissionState = 'READY_FOR_REVIEW';
+
+    if (submissionId) {
+      let existingSubmission: any;
+      try {
+        existingSubmission = await getReviewSubmission(client, submissionId);
+        submissionState = assertReviewSubmissionContext(
+          existingSubmission,
+          submissionId,
+          args.appId,
+          args.platform,
+        );
+      } catch (error) {
+        throw new Error(
+          `Review submission ${submissionId} cannot be resumed. ${errorDetail(error)}`,
+        );
+      }
+      if (submissionState !== 'READY_FOR_REVIEW' && !submittedReviewStates.has(submissionState)) {
+        throw new Error(
+          `Review submission ${submissionId} cannot be resumed from state ${submissionState}`,
+        );
+      }
+    } else {
+      let readyIdsBeforeCreate: string[];
+      try {
+        const beforeCreate = await listReadyReviewSubmissions(client, args.appId, args.platform);
+        const beforeIds: string[] = (Array.isArray(beforeCreate.data) ? beforeCreate.data : [])
+          .map((resource: any) => resource.id)
+          .filter((id: unknown): id is string => typeof id === 'string');
+        readyIdsBeforeCreate = [...new Set<string>(beforeIds)];
+      } catch (error) {
+        throw new Error(
+          `Cannot safely create a review submission for app ${args.appId}, platform ${args.platform}: READY_FOR_REVIEW preflight failed; no submission was created. ${errorDetail(error)}`,
+        );
+      }
+
+      if (readyIdsBeforeCreate.length > 1) {
+        throw new Error(
+          `Multiple READY_FOR_REVIEW submissions exist for app ${args.appId}, platform ${args.platform}: ${readyIdsBeforeCreate.join(', ')}. Retry with an explicit submissionId`,
+        );
+      }
+
+      if (readyIdsBeforeCreate.length === 1) {
+        [submissionId] = readyIdsBeforeCreate;
+        selectedFromPreflight = true;
+        try {
+          const existingSubmission = await getReviewSubmission(client, submissionId);
+          submissionState = assertReviewSubmissionContext(
+            existingSubmission,
+            submissionId,
+            args.appId,
+            args.platform,
+          );
+        } catch (error) {
+          throw new Error(
+            `Review submission ${submissionId} was found during preflight but could not be resumed. ${errorDetail(error)}`,
+          );
+        }
+        if (submissionState !== 'READY_FOR_REVIEW') {
+          throw new Error(
+            `Review submission ${submissionId} changed to state ${submissionState} during preflight; retry after checking its status`,
+          );
+        }
+      } else {
+        try {
+          const submission = await client.request('/reviewSubmissions', {
+            method: 'POST',
+            body: {
+              data: {
+                type: 'reviewSubmissions',
+                attributes: { platform: args.platform },
+                relationships: {
+                  app: { data: { type: 'apps', id: args.appId } },
+                },
+              },
+            },
+          });
+          const createdId = submission.data?.id;
+          if (typeof createdId !== 'string' || createdId.length === 0) {
+            throw new Error('Apple create response did not include a review submission ID');
+          }
+          submissionId = createdId;
+          createdThisCall = true;
+        } catch (createError) {
+          let candidates: string[] = [];
+          if (!isDefinitiveAppleMutationError(createError)) {
+            try {
+              const afterCreate = await listReadyReviewSubmissions(
+                client,
+                args.appId,
+                args.platform,
+              );
+              const afterIds: string[] = (
+                Array.isArray(afterCreate.data) ? afterCreate.data : []
+              )
+                .map((resource: any) => resource.id)
+                .filter((id: unknown): id is string => typeof id === 'string');
+              candidates = [...new Set<string>(afterIds)];
+            } catch {
+              candidates = [];
+            }
+          }
+
+          if (candidates.length > 0) {
+            throw new Error(
+              `Review submission creation outcome is ambiguous for app ${args.appId}, platform ${args.platform}; READY_FOR_REVIEW candidate IDs: ${candidates.join(', ')}. No item was attached. Retry with an explicit submissionId after verifying the candidate. ${errorDetail(createError)}`,
+            );
+          }
+          throw new Error(
+            `Review submission creation failed for app ${args.appId}, platform ${args.platform}; no submission ID could be identified safely. ${errorDetail(createError)}`,
+          );
+        }
+      }
+    }
+
+    if (!submissionId) {
+      throw new Error(
+        `Review submission creation failed for app ${args.appId}, platform ${args.platform}; no submission ID was returned`,
+      );
+    }
+    if (selectedFromPreflight) {
+      throw new Error(
+        `READY_FOR_REVIEW submission ${submissionId} already exists for app ${args.appId}, platform ${args.platform}. No item was attached or submitted; retry with submissionId=${submissionId} to explicitly resume it`,
+      );
+    }
+
+    let itemsBeforeAttach: any;
+    try {
+      itemsBeforeAttach = await getReviewSubmissionItems(client, submissionId);
+    } catch (error) {
+      throw new Error(
+        `Unable to inspect items for review submission ${submissionId}; no attach was attempted. ${submissionRetryHint(submissionId)} ${errorDetail(error)}`,
+      );
+    }
+
+    const attachedVersionIds = attachedAppStoreVersionIds(itemsBeforeAttach);
+    let versionAttached = attachedVersionIds.includes(args.versionId);
+    if (!versionAttached && attachedVersionIds.length > 0) {
+      throw new Error(
+        `Review submission ${submissionId} already contains App Store version ${attachedVersionIds.join(', ')} instead of ${args.versionId}; submission was retained`,
+      );
+    }
+
+    if (submittedReviewStates.has(submissionState)) {
+      if (!versionAttached) {
+        throw new Error(
+          `Review submission ${submissionId} is already in state ${submissionState} but does not contain App Store version ${args.versionId}`,
+        );
+      }
+      return {
+        success: true,
+        reconciled: true,
+        submissionId,
+        state: submissionState,
+      };
+    }
+
+    if (!versionAttached) {
+      try {
+        await client.request('/reviewSubmissionItems', {
+          method: 'POST',
+          body: {
+            data: {
+              type: 'reviewSubmissionItems',
+              relationships: {
+                reviewSubmission: {
+                  data: { type: 'reviewSubmissions', id: submissionId },
+                },
+                appStoreVersion: {
+                  data: { type: 'appStoreVersions', id: args.versionId },
+                },
+              },
+            },
+          },
+        });
+        versionAttached = true;
+      } catch (attachError) {
+        let attachedAfterError = false;
+        let itemCheckError: unknown;
+        try {
+          const itemsAfterError = await getReviewSubmissionItems(client, submissionId);
+          attachedAfterError = attachedAppStoreVersionIds(itemsAfterError)
+            .includes(args.versionId);
+        } catch (error) {
+          itemCheckError = error;
+        }
+
+        if (attachedAfterError) {
+          versionAttached = true;
+        } else if (isDefinitiveAppleMutationError(attachError)) {
+          const cleanupResult = createdThisCall
+            ? await cancelReviewSubmissionBestEffort(client, submissionId)
+            : 'resumed submission retained';
+          throw new Error(
+            `Review submission ${submissionId} item attach was rejected; ${cleanupResult}. ${errorDetail(attachError)}${exportComplianceHint(attachError)}`,
+          );
+        } else {
+          const checkDetail = itemCheckError
+            ? ` Item reconciliation failed: ${errorDetail(itemCheckError)}.`
+            : ' The version item was not visible after the error.';
+          throw new Error(
+            `Review submission ${submissionId} item attach outcome is ambiguous.${checkDetail} ${submissionRetryHint(submissionId)}${exportComplianceHint(attachError)} Initial error: ${errorDetail(attachError)}`,
+          );
+        }
+      }
+    }
+
+    if (!versionAttached) {
+      throw new Error(
+        `Review submission ${submissionId} does not contain App Store version ${args.versionId}; ${submissionRetryHint(submissionId)}`,
+      );
+    }
+
+    try {
+      return await client.request(`/reviewSubmissions/${submissionId}`, {
+        method: 'PATCH',
+        body: {
+          data: {
+            type: 'reviewSubmissions',
+            id: submissionId,
+            attributes: { submitted: true },
+          },
+        },
+      });
+    } catch (submitError) {
+      let currentSubmission: any;
+      try {
+        currentSubmission = await getReviewSubmission(client, submissionId);
+      } catch (statusError) {
+        throw new Error(
+          `Review submission ${submissionId} submit outcome is ambiguous and status could not be read; submission was retained. ${submissionRetryHint(submissionId)} Initial error: ${errorDetail(submitError)}. Status error: ${errorDetail(statusError)}`,
+        );
+      }
+
+      let currentState: string;
+      try {
+        currentState = assertReviewSubmissionContext(
+          currentSubmission,
+          submissionId,
+          args.appId,
+          args.platform,
+        );
+      } catch (contextError) {
+        throw new Error(
+          `Review submission ${submissionId} submit outcome could not be reconciled; submission was retained. ${errorDetail(contextError)}`,
+        );
+      }
+      if (submittedReviewStates.has(currentState)) {
+        return {
+          ...currentSubmission,
+          success: true,
+          reconciled: true,
+          submissionId,
+        };
+      }
+      if (currentState === 'READY_FOR_REVIEW') {
+        throw new Error(
+          `Review submission ${submissionId} remains READY_FOR_REVIEW after the submit error. ${submissionRetryHint(submissionId)} ${errorDetail(submitError)}`,
+        );
+      }
+      throw new Error(
+        `Review submission ${submissionId} submit failed and is now in state ${currentState}; submission was retained. ${errorDetail(submitError)}`,
+      );
+    }
   },
 };
 
@@ -699,6 +1745,105 @@ const cancelSubmission: ToolDef = {
         },
       },
     });
+  },
+};
+
+const releaseVersion: ToolDef = {
+  name: 'apple_release_version',
+  description:
+    'Irreversibly request release of an approved version that is in PENDING_DEVELOPER_RELEASE',
+  schema: z.object({
+    versionId: z.string().min(1).describe('Approved App Store Version ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request('/appStoreVersionReleaseRequests', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'appStoreVersionReleaseRequests',
+          relationships: {
+            appStoreVersion: {
+              data: { type: 'appStoreVersions', id: args.versionId },
+            },
+          },
+        },
+      },
+    });
+  },
+};
+
+const getPhasedRelease: ToolDef = {
+  name: 'apple_get_phased_release',
+  description: 'Get phased-release status and progress for an App Store version',
+  schema: z.object({
+    versionId: z.string().min(1).describe('App Store Version ID'),
+  }),
+  handler: async (client, args) => {
+    return client.request(
+      `/appStoreVersions/${args.versionId}/appStoreVersionPhasedRelease`,
+    );
+  },
+};
+
+const createPhasedRelease: ToolDef = {
+  name: 'apple_create_phased_release',
+  description:
+    'Enable a seven-day phased release for an app update; phased release is unavailable for an app\'s first version',
+  schema: z.object({
+    versionId: z.string().min(1).describe('App Store Version ID for an update'),
+    state: z.enum(['INACTIVE', 'ACTIVE']).default('INACTIVE'),
+  }),
+  handler: async (client, args) => {
+    return client.request('/appStoreVersionPhasedReleases', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'appStoreVersionPhasedReleases',
+          attributes: { phasedReleaseState: args.state },
+          relationships: {
+            appStoreVersion: {
+              data: { type: 'appStoreVersions', id: args.versionId },
+            },
+          },
+        },
+      },
+    });
+  },
+};
+
+const updatePhasedRelease: ToolDef = {
+  name: 'apple_update_phased_release',
+  description:
+    'Pause, resume, or complete an existing phased release; COMPLETE immediately releases the update to all users',
+  schema: z.object({
+    phasedReleaseId: z.string().min(1).describe('App Store Version Phased Release ID'),
+    state: z.enum(['ACTIVE', 'PAUSED', 'COMPLETE']),
+  }),
+  handler: async (client, args) => {
+    return client.request(`/appStoreVersionPhasedReleases/${args.phasedReleaseId}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'appStoreVersionPhasedReleases',
+          id: args.phasedReleaseId,
+          attributes: { phasedReleaseState: args.state },
+        },
+      },
+    });
+  },
+};
+
+const deletePhasedRelease: ToolDef = {
+  name: 'apple_delete_phased_release',
+  description: 'Cancel a phased release configuration before the phased release has started',
+  schema: z.object({
+    phasedReleaseId: z.string().min(1).describe('Inactive App Store Version Phased Release ID'),
+  }),
+  handler: async (client, args) => {
+    await client.request(`/appStoreVersionPhasedReleases/${args.phasedReleaseId}`, {
+      method: 'DELETE',
+    });
+    return { success: true };
   },
 };
 
@@ -840,6 +1985,116 @@ const listTerritoryAvailability: ToolDef = {
       appAvailability: availability.data,
       territoryAvailabilities,
     };
+  },
+};
+
+const availabilityTerritoryInput = z.object({
+  territoryId: z.string().min(1).describe('App Store territory ID, e.g. USA or KOR'),
+  available: z.boolean().default(true),
+  releaseDate: calendarDateSchema.nullable().optional(),
+  preOrderEnabled: z.boolean().default(false),
+});
+
+const createAvailability: ToolDef = {
+  name: 'apple_create_availability',
+  description:
+    'Create initial app availability with explicit territory settings; use available=true and preOrderEnabled=false for a normal release',
+  schema: z.object({
+    appId: z.string().min(1).describe('App ID'),
+    availableInNewTerritories: z.boolean().default(true),
+    territories: z.array(availabilityTerritoryInput).min(1)
+      .describe('Initial availability settings for each selected territory'),
+  }),
+  handler: async (client, args) => {
+    const seenTerritories = new Set<string>();
+    const territories = args.territories.map((territory: any, index: number) => {
+      validateCalendarDate(territory.releaseDate, 'releaseDate');
+      if (territory.preOrderEnabled === true && typeof territory.releaseDate !== 'string') {
+        throw new Error('preOrderEnabled=true requires a non-null releaseDate');
+      }
+      if (seenTerritories.has(territory.territoryId)) {
+        throw new Error(`Duplicate Apple territory ID: ${territory.territoryId}`);
+      }
+      seenTerritories.add(territory.territoryId);
+      return {
+        ...territory,
+        inlineId: '${territoryAvailability-' + index + '}',
+      };
+    });
+
+    return client.request('/v2/appAvailabilities', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'appAvailabilities',
+          attributes: {
+            availableInNewTerritories: args.availableInNewTerritories,
+          },
+          relationships: {
+            app: { data: { type: 'apps', id: args.appId } },
+            territoryAvailabilities: {
+              data: territories.map((territory: any) => ({
+                type: 'territoryAvailabilities',
+                id: territory.inlineId,
+              })),
+            },
+          },
+        },
+        included: territories.map((territory: any) => ({
+          type: 'territoryAvailabilities',
+          id: territory.inlineId,
+          attributes: {
+            available: territory.available,
+            preOrderEnabled: territory.preOrderEnabled,
+            ...(territory.releaseDate !== undefined
+              ? { releaseDate: territory.releaseDate }
+              : {}),
+          },
+          relationships: {
+            territory: {
+              data: { type: 'territories', id: territory.territoryId },
+            },
+          },
+        })),
+      },
+    });
+  },
+};
+
+const updateTerritoryAvailability: ToolDef = {
+  name: 'apple_update_territory_availability',
+  description:
+    'Change availability, release date, or pre-order state for one existing territory availability record returned by apple_list_availability',
+  schema: z.object({
+    territoryAvailabilityId: z.string().min(1)
+      .describe('Territory Availability resource ID, not the territory code'),
+    available: z.boolean().nullable().optional(),
+    releaseDate: calendarDateSchema.nullable().optional(),
+    preOrderEnabled: z.boolean().nullable().optional(),
+  }),
+  handler: async (client, args) => {
+    validateCalendarDate(args.releaseDate, 'releaseDate');
+    if (args.preOrderEnabled === true && args.releaseDate === null) {
+      throw new Error('preOrderEnabled=true cannot be combined with releaseDate=null');
+    }
+    const { territoryAvailabilityId, ...values } = args;
+    const attributes = Object.fromEntries(
+      Object.entries(values).filter(([, value]) => value !== undefined),
+    );
+    if (Object.keys(attributes).length === 0) {
+      throw new Error('At least one territory availability attribute must be provided');
+    }
+
+    return client.request(`/territoryAvailabilities/${territoryAvailabilityId}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'territoryAvailabilities',
+          id: territoryAvailabilityId,
+          attributes,
+        },
+      },
+    });
   },
 };
 
@@ -1187,7 +2442,7 @@ const createBetaGroup: ToolDef = {
   schema: z.object({
     appId: z.string().describe('App ID'),
     name: z.string().describe('Group name'),
-    isInternalGroup: z.boolean().optional().describe('Is internal group (Apple employees)'),
+    isInternalGroup: z.boolean().optional().describe('Internal group for App Store Connect team members'),
     hasAccessToAllBuilds: z.boolean().optional().describe('Auto-enable all new builds'),
     publicLinkEnabled: z.boolean().optional().describe('Enable public TestFlight link'),
     publicLinkLimit: z.number().optional().describe('Max testers via public link'),
@@ -1723,24 +2978,27 @@ const getWinBackOffer: ToolDef = {
 
 export const appleTools: ToolDef[] = [
   // App Management
-  listApps, getNextPage, getApp, getAppInfo, updateAppInfoCategory,
+  listApps, getNextPage, getApp, updateApp, getAppInfo, updateAppInfoCategory,
   // Bundle IDs
   listBundleIds, createBundleId,
   // Versions & Localizations
-  listVersions, createVersion,
+  listVersions, createVersion, updateVersion,
   listVersionLocalizations, createVersionLocalization, updateVersionLocalization,
   // App Info Localizations (name, subtitle)
   listAppInfoLocalizations, updateAppInfoLocalization,
   // Screenshots
   listScreenshotSets, createScreenshotSet, uploadScreenshot, deleteScreenshot,
   // Builds
-  listBuilds, assignBuild,
+  listBuilds, getBuildUpload, deleteBuildUpload, waitForBuildUpload, uploadBuild,
+  setBuildEncryption, assignBuild,
   // Age Rating & Review Info
   getAgeRating, updateAgeRating, updateReviewDetail,
   // Submission
-  submitForReview, cancelSubmission,
+  submitForReview, cancelSubmission, releaseVersion,
+  getPhasedRelease, createPhasedRelease, updatePhasedRelease, deletePhasedRelease,
   // Pricing & Availability
   getAppPricing, listAppPricePoints, setAppPrice, listTerritoryAvailability,
+  createAvailability, updateTerritoryAvailability,
   // Customer Reviews
   listCustomerReviews, respondToReview,
   // Bundle ID Capabilities

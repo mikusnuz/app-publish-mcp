@@ -37,6 +37,18 @@ const createEdit: ToolDef = {
   },
 };
 
+const getEdit: ToolDef = {
+  name: 'google_get_edit',
+  description: 'Get an edit session, including its ID and expiry time, before resuming pending work',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID'),
+  }),
+  handler: async (client, args) => {
+    return client.getEdit(args.packageName, args.editId);
+  },
+};
+
 const commitEdit: ToolDef = {
   name: 'google_commit_edit',
   description: 'Commit all pending changes. By default, fail safely instead of canceling changes that are already in review.',
@@ -339,12 +351,21 @@ function sameVersionCodes(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function matchingTrackReleases(
+  releases: androidpublisher_v3.Schema$TrackRelease[],
+  requestedVersionCodes: string[],
+): androidpublisher_v3.Schema$TrackRelease[] {
+  const requested = [...requestedVersionCodes]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  return releases.filter(release => sameVersionCodes(normalizedVersionCodes(release), requested));
+}
+
 export function selectTrackReleaseByVersionCodes(
   releases: androidpublisher_v3.Schema$TrackRelease[],
   requestedVersionCodes: string[],
 ): androidpublisher_v3.Schema$TrackRelease {
   const requested = [...requestedVersionCodes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const matches = releases.filter(release => sameVersionCodes(normalizedVersionCodes(release), requested));
+  const matches = matchingTrackReleases(releases, requested);
   if (matches.length !== 1) {
     const available = releases.map(release => normalizedVersionCodes(release).join(',')).filter(Boolean);
     throw new Error(
@@ -356,10 +377,113 @@ export function selectTrackReleaseByVersionCodes(
   return matches[0];
 }
 
-function validateStagedRelease(
+const maxPlayVersionCode = '2100000000';
+const versionCodeSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/, 'Version codes must be positive canonical integer strings')
+  .refine(
+    value => value.length < maxPlayVersionCode.length
+      || (value.length === maxPlayVersionCode.length && value <= maxPlayVersionCode),
+    'Version codes must not exceed the Google Play maximum of 2100000000',
+  );
+
+const versionCodesSchema = z
+  .array(versionCodeSchema)
+  .min(1)
+  .superRefine((versionCodes, context) => {
+    const seen = new Set<string>();
+    versionCodes.forEach((versionCode, index) => {
+      if (seen.has(versionCode)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index],
+          message: `Duplicate version code ${versionCode}`,
+        });
+      }
+      seen.add(versionCode);
+    });
+  });
+
+const countryTargetingSchema = z.object({
+  countries: z
+    .array(z.string().regex(/^[A-Z]{2}$/, 'Countries must use two-letter uppercase CLDR codes'))
+    .default([]),
+  includeRestOfWorld: z.boolean().optional().default(false),
+}).superRefine((targeting, context) => {
+  if (targeting.countries.length === 0 && !targeting.includeRestOfWorld) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['countries'],
+      message: 'Provide at least one country or set includeRestOfWorld to true',
+    });
+  }
+  const seen = new Set<string>();
+  targeting.countries.forEach((country, index) => {
+    if (seen.has(country)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['countries', index],
+        message: `Duplicate country ${country}`,
+      });
+    }
+    seen.add(country);
+  });
+});
+
+function validateCountryTargetingSuperset(
+  releases: androidpublisher_v3.Schema$TrackRelease[],
+  versionCodes: string[],
+  countryTargeting: z.infer<typeof countryTargetingSchema>,
+): void {
+  const matches = matchingTrackReleases(releases, versionCodes);
+  if (matches.length > 1) {
+    throw new Error(`Multiple target releases match version codes ${versionCodes.join(', ')}`);
+  }
+
+  const existing = matches[0];
+  if (existing?.status !== 'inProgress' || !existing.countryTargeting) return;
+
+  const requestedCountries = new Set(countryTargeting.countries);
+  const removedCountries = (existing.countryTargeting.countries ?? [])
+    .filter(country => !requestedCountries.has(country));
+  const removesRestOfWorld = existing.countryTargeting.includeRestOfWorld === true
+    && !countryTargeting.includeRestOfWorld;
+
+  if (removedCountries.length > 0 || removesRestOfWorld) {
+    const removals = [
+      ...(removedCountries.length > 0
+        ? [`countries ${removedCountries.join(', ')}`]
+        : []),
+      ...(removesRestOfWorld ? ['includeRestOfWorld'] : []),
+    ];
+    throw new Error(
+      `countryTargeting cannot remove ${removals.join(' or ')} from an existing in-progress release`,
+    );
+  }
+}
+
+async function validateExistingCountryTargeting(
+  client: GoogleClient,
+  packageName: string,
+  editId: string,
+  track: string,
+  versionCodes: string[],
+  countryTargeting: z.infer<typeof countryTargetingSchema> | undefined,
+): Promise<void> {
+  if (!countryTargeting) return;
+  const targetTrack = await client.getTrack(packageName, editId, track);
+  validateCountryTargetingSuperset(
+    targetTrack.releases ?? [],
+    versionCodes,
+    countryTargeting,
+  );
+}
+
+function validateReleaseOptions(
   track: string,
   status: string,
   userFraction: number | undefined,
+  countryTargeting: z.infer<typeof countryTargetingSchema> | undefined,
 ): void {
   const trackKind = track.split(':').at(-1);
   if (userFraction !== undefined && (trackKind === 'qa' || trackKind === 'internal')) {
@@ -371,6 +495,9 @@ function validateStagedRelease(
   if (status === 'inProgress' && userFraction === undefined) {
     throw new Error(`${status} releases require userFraction`);
   }
+  if (countryTargeting !== undefined && (trackKind !== 'production' || status !== 'inProgress')) {
+    throw new Error('countryTargeting is only supported for inProgress releases on a production track');
+  }
 }
 
 const createRelease: ToolDef = {
@@ -380,7 +507,7 @@ const createRelease: ToolDef = {
     packageName: z.string().describe('Android package name'),
     editId: z.string().describe('Edit ID'),
     track: z.string().min(1).describe('Target track ID, including custom or form-factor tracks returned by google_list_tracks'),
-    versionCodes: z.array(z.string()).min(1).describe('Complete version-code set for this release'),
+    versionCodes: versionCodesSchema.describe('Complete version-code set for this release'),
     releaseNotes: z.array(z.object({
       language: z.string(),
       text: z.string(),
@@ -388,9 +515,27 @@ const createRelease: ToolDef = {
     status: z.enum(['draft', 'halted', 'completed', 'inProgress']).default('completed'),
     userFraction: z.number().gt(0).lt(1).optional().describe('Staged rollout fraction (exclusive range 0-1; not supported for internal)'),
     releaseName: z.string().optional().describe('Release name/label'),
+    countryTargeting: countryTargetingSchema
+      .optional()
+      .describe('Country targeting for an inProgress production rollout'),
+    inAppUpdatePriority: z
+      .number()
+      .int()
+      .min(0)
+      .max(5)
+      .optional()
+      .describe('In-app update priority from 0 (lowest) to 5 (highest); cannot be changed after rollout'),
   }),
   handler: async (client, args) => {
-    validateStagedRelease(args.track, args.status, args.userFraction);
+    validateReleaseOptions(args.track, args.status, args.userFraction, args.countryTargeting);
+    await validateExistingCountryTargeting(
+      client,
+      args.packageName,
+      args.editId,
+      args.track,
+      args.versionCodes,
+      args.countryTargeting,
+    );
     const release: any = {
       status: args.status,
       versionCodes: args.versionCodes,
@@ -398,6 +543,10 @@ const createRelease: ToolDef = {
     if (args.releaseNotes) release.releaseNotes = args.releaseNotes;
     if (args.userFraction !== undefined) release.userFraction = args.userFraction;
     if (args.releaseName) release.name = args.releaseName;
+    if (args.countryTargeting) release.countryTargeting = args.countryTargeting;
+    if (args.inAppUpdatePriority !== undefined) {
+      release.inAppUpdatePriority = args.inAppUpdatePriority;
+    }
 
     return client.updateTrack(args.packageName, args.editId, args.track, [release]);
   },
@@ -411,24 +560,42 @@ const promoteRelease: ToolDef = {
     editId: z.string().describe('Edit ID'),
     fromTrack: z.string().min(1).describe('Source track ID returned by google_list_tracks'),
     toTrack: z.string().min(1).describe('Target track ID, including custom or form-factor tracks'),
-    versionCodes: z.array(z.string()).min(1).describe('Complete version-code set identifying the source release'),
+    versionCodes: versionCodesSchema.describe('Complete version-code set identifying the source release'),
     userFraction: z.number().gt(0).lt(1).optional().describe('Staged rollout fraction (not supported for internal)'),
     releaseNotes: z.array(z.object({
       language: z.string(),
       text: z.string(),
     })).optional(),
+    countryTargeting: countryTargetingSchema
+      .optional()
+      .describe('Country targeting for an inProgress production rollout'),
+    inAppUpdatePriority: z
+      .number()
+      .int()
+      .min(0)
+      .max(5)
+      .optional()
+      .describe('In-app update priority from 0 (lowest) to 5 (highest)'),
   }),
   handler: async (client, args) => {
     if (args.fromTrack === args.toTrack) {
       throw new Error('fromTrack and toTrack must be different');
     }
     const status = args.userFraction !== undefined ? 'inProgress' : 'completed';
-    validateStagedRelease(args.toTrack, status, args.userFraction);
+    validateReleaseOptions(args.toTrack, status, args.userFraction, args.countryTargeting);
 
     const sourceTrack = await client.getTrack(args.packageName, args.editId, args.fromTrack);
     const sourceRelease = selectTrackReleaseByVersionCodes(
       sourceTrack.releases ?? [],
       args.versionCodes,
+    );
+    await validateExistingCountryTargeting(
+      client,
+      args.packageName,
+      args.editId,
+      args.toTrack,
+      args.versionCodes,
+      args.countryTargeting,
     );
 
     const release: any = {
@@ -436,10 +603,12 @@ const promoteRelease: ToolDef = {
       status,
     };
     if (sourceRelease.name) release.name = sourceRelease.name;
-    if (sourceRelease.inAppUpdatePriority !== undefined) {
-      release.inAppUpdatePriority = sourceRelease.inAppUpdatePriority;
+    const inAppUpdatePriority = args.inAppUpdatePriority ?? sourceRelease.inAppUpdatePriority;
+    if (inAppUpdatePriority !== undefined) {
+      release.inAppUpdatePriority = inAppUpdatePriority;
     }
     if (args.userFraction !== undefined) release.userFraction = args.userFraction;
+    if (args.countryTargeting) release.countryTargeting = args.countryTargeting;
     if (args.releaseNotes) release.releaseNotes = args.releaseNotes;
     else if (sourceRelease.releaseNotes) release.releaseNotes = sourceRelease.releaseNotes;
 
@@ -454,7 +623,7 @@ const haltRelease: ToolDef = {
     packageName: z.string().describe('Android package name'),
     editId: z.string().describe('Edit ID'),
     track: z.string().min(1).describe('Track ID returned by google_list_tracks'),
-    versionCodes: z.array(z.string().min(1)).min(1).describe('Complete version-code set identifying the release to halt'),
+    versionCodes: versionCodesSchema.describe('Complete version-code set identifying the release to halt'),
   }),
   handler: async (client, args) => {
     const trackData = await client.getTrack(args.packageName, args.editId, args.track);
@@ -476,9 +645,39 @@ const haltRelease: ToolDef = {
   },
 };
 
+const listReleaseStatuses: ToolDef = {
+  name: 'google_list_release_statuses',
+  description: 'List non-obsolete releases and their review/publishing lifecycle states for a track after an edit is committed',
+  schema: z.object({
+    packageName: z.string().trim().min(1).refine(
+      value => !value.includes('/'),
+      'Package name must not contain "/"',
+    ).describe('Android package name'),
+    track: z.string().trim().min(1).refine(
+      value => !value.includes('/'),
+      'Track ID must not contain "/"',
+    ).describe('Track ID, including custom or form-factor tracks'),
+  }),
+  handler: async (client, args) => {
+    return client.listReleaseSummaries(args.packageName, args.track);
+  },
+};
+
 // ═══════════════════════════════════════════
 // 7. Bundle / APK Upload
 // ═══════════════════════════════════════════
+
+const listBundles: ToolDef = {
+  name: 'google_list_bundles',
+  description: 'List Android App Bundles already available in an edit, including version codes and hashes',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID'),
+  }),
+  handler: async (client, args) => {
+    return client.listBundles(args.packageName, args.editId);
+  },
+};
 
 const uploadBundle: ToolDef = {
   name: 'google_upload_bundle',
@@ -506,8 +705,37 @@ const uploadApk: ToolDef = {
   },
 };
 
+const listApks: ToolDef = {
+  name: 'google_list_apks',
+  description: 'List APKs already available in an edit, including version codes and hashes',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    editId: z.string().describe('Edit ID'),
+  }),
+  handler: async (client, args) => {
+    return client.listApks(args.packageName, args.editId);
+  },
+};
+
 // ═══════════════════════════════════════════
-// 8. Reviews
+// 8. Data Safety
+// ═══════════════════════════════════════════
+
+const updateDataSafety: ToolDef = {
+  name: 'google_update_data_safety',
+  description: 'Submit a user-reviewed Data Safety declaration from an up-to-date Google Play CSV export. Google does not provide a corresponding read endpoint.',
+  schema: z.object({
+    packageName: z.string().describe('Android package name'),
+    csvPath: z.string().min(1).describe('Local path to the reviewed Data Safety .csv file'),
+  }),
+  handler: async (client, args) => {
+    await client.updateDataSafety(args.packageName, args.csvPath);
+    return { success: true };
+  },
+};
+
+// ═══════════════════════════════════════════
+// 9. Reviews
 // ═══════════════════════════════════════════
 
 const listReviews: ToolDef = {
@@ -556,7 +784,7 @@ const replyToReview: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
-// 9. In-App Products
+// 10. In-App Products
 // ═══════════════════════════════════════════
 
 const listInAppProducts: ToolDef = {
@@ -664,7 +892,7 @@ const deleteInAppProduct: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
-// 10. Subscriptions (monetization)
+// 11. Subscriptions (monetization)
 // ═══════════════════════════════════════════
 
 const listSubscriptions: ToolDef = {
@@ -927,7 +1155,7 @@ const deactivateBasePlan: ToolDef = {
 };
 
 // ═══════════════════════════════════════════
-// 11. One-time Products (monetization)
+// 12. One-time Products (monetization)
 // ═══════════════════════════════════════════
 
 const listOneTimeProducts: ToolDef = {
@@ -1220,7 +1448,7 @@ const deactivatePurchaseOption: ToolDef = {
 
 export const googleTools: ToolDef[] = [
   // Edit lifecycle
-  createEdit, commitEdit, validateEdit, deleteEdit,
+  createEdit, getEdit, commitEdit, validateEdit, deleteEdit,
   // App details
   getDetails, updateDetails,
   // Store listing
@@ -1230,9 +1458,11 @@ export const googleTools: ToolDef[] = [
   // Images
   listImages, uploadImage, deleteImage, deleteAllImages,
   // Tracks & Releases
-  listTracks, getTrack, createRelease, promoteRelease, haltRelease,
+  listTracks, getTrack, createRelease, promoteRelease, haltRelease, listReleaseStatuses,
   // Bundle / APK
-  uploadBundle, uploadApk,
+  listBundles, uploadBundle, listApks, uploadApk,
+  // Data Safety
+  updateDataSafety,
   // Reviews
   listReviews, getReview, replyToReview,
   // In-App Products

@@ -1,6 +1,6 @@
 {
   "name": "app-publish-mcp",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "mcpName": "io.github.mikusnuz/app-publish",
   "description": "Unified MCP server for App Store Connect & Google Play Console",
   "type": "module",
@@ -42,6 +42,7 @@
   },
   "files": [
     "dist/**/*",
+    ".env.example",
     "LICENSE",
     "README.md"
   ],

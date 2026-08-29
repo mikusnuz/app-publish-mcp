@@ -42,7 +42,7 @@ test('llms tool inventory matches every registered Apple and Google tool', () =>
     .map(tool => tool.name)
     .sort();
 
-  assert.equal(registered.length, 116);
+  assert.equal(registered.length, 135);
   assert.deepEqual(documented, registered);
 });
 

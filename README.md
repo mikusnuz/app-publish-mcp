@@ -6,6 +6,12 @@
 
 A unified [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server for **App Store Connect** and **Google Play Console**. Manage app listings, screenshots, releases, reviews and submissions — all from your AI assistant.
 
+## Publishing Boundary
+
+You provide a release-ready, correctly signed Android `.aab` / `.apk` or Apple `.ipa`. The MCP handles supported store-side work from upload through metadata, testing, review submission, and release. It does not compile the app, own signing keys, or replace Xcode, Gradle, or CI.
+
+The first release of a new app still requires manual setup in App Store Connect or Play Console, including developer enrollment, agreements, app records where required, API access, signing, tax and banking details, and policy, privacy, or content declarations. For an existing, fully configured Android app, a signed AAB is usually enough to let the MCP run the update workflow. A Google edit commit only commits the requested changes; store review, managed publishing, or a staged rollout can delay public availability.
+
 ## When to Use
 
 Use this MCP when you need to:
@@ -22,21 +28,22 @@ Use this MCP when you need to:
 
 ## Features
 
-### Apple App Store Connect (72 tools)
+### Apple App Store Connect (86 tools)
 | Category | Tools |
 |----------|-------|
-| App Management | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_get_app_info`, `apple_update_category` |
+| App Management | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_update_app`, `apple_get_app_info`, `apple_update_category` |
 | Bundle IDs | `apple_list_bundle_ids`, `apple_create_bundle_id` |
 | Bundle ID Capabilities | `apple_list_bundle_id_capabilities`, `apple_enable_capability`, `apple_disable_capability` |
-| Versions | `apple_list_versions`, `apple_create_version` |
+| Versions | `apple_list_versions`, `apple_create_version`, `apple_update_version` |
 | Version Localizations | `apple_list_version_localizations`, `apple_create_version_localization`, `apple_update_version_localization` |
 | App Info Localizations | `apple_list_app_info_localizations`, `apple_update_app_info_localization` |
 | Screenshots | `apple_list_screenshot_sets`, `apple_create_screenshot_set`, `apple_upload_screenshot`, `apple_delete_screenshot` |
-| Builds | `apple_list_builds`, `apple_assign_build` |
+| Builds | `apple_list_builds`, `apple_get_build_upload`, `apple_wait_for_build_upload`, `apple_delete_build_upload`, `apple_upload_build`, `apple_set_build_encryption`, `apple_assign_build` |
 | Age Rating | `apple_get_age_rating`, `apple_update_age_rating` |
 | Review Info | `apple_update_review_detail` |
 | Submission | `apple_submit_for_review`, `apple_cancel_submission` |
-| Pricing | `apple_get_pricing`, `apple_list_app_price_points`, `apple_set_price`, `apple_list_availability` |
+| Release | `apple_release_version`, `apple_get_phased_release`, `apple_create_phased_release`, `apple_update_phased_release`, `apple_delete_phased_release` |
+| Pricing & Availability | `apple_get_pricing`, `apple_list_app_price_points`, `apple_set_price`, `apple_list_availability`, `apple_create_availability`, `apple_update_territory_availability` |
 | Customer Reviews | `apple_list_reviews`, `apple_respond_to_review` |
 | Certificates | `apple_list_certificates`, `apple_create_certificate`, `apple_revoke_certificate` |
 | Provisioning Profiles | `apple_list_profiles`, `apple_create_profile`, `apple_delete_profile` |
@@ -52,17 +59,20 @@ Use this MCP when you need to:
 
 `apple_get_pricing` follows all manual and automatic price pages. `apple_set_price` submits the complete manual price schedule, so include every current or future manual entry that must remain; omitted entries may be removed from the schedule.
 
-### Google Play Console (44 tools)
+Apple provisioning resources — Bundle IDs, capabilities, certificates, profiles, and devices — require a Team API key with suitable access. Individual API keys can be used for supported App Store Connect publishing operations, but not for those provisioning resources. TestFlight internal testers are members of your App Store Connect team, not Apple employees.
+
+### Google Play Console (49 tools)
 | Category | Tools |
 |----------|-------|
-| Edit Lifecycle | `google_create_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
+| Edit Lifecycle | `google_create_edit`, `google_get_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
 | App Details | `google_get_details`, `google_update_details` |
 | Store Listing | `google_list_listings`, `google_get_listing`, `google_update_listing`, `google_delete_listing` |
 | Country Availability | `google_get_country_availability` |
 | Testers | `google_get_testers`, `google_update_testers` |
 | Images | `google_list_images`, `google_upload_image`, `google_delete_image`, `google_delete_all_images` |
-| Tracks & Releases | `google_list_tracks`, `google_get_track`, `google_create_release`, `google_promote_release`, `google_halt_release` |
-| Bundle / APK | `google_upload_bundle`, `google_upload_apk` |
+| Tracks & Releases | `google_list_tracks`, `google_get_track`, `google_create_release`, `google_promote_release`, `google_halt_release`, `google_list_release_statuses` |
+| Bundle / APK | `google_list_bundles`, `google_upload_bundle`, `google_list_apks`, `google_upload_apk` |
+| Data Safety | `google_update_data_safety` |
 | Reviews¹ | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | In-App Products | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
 | Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
@@ -75,7 +85,7 @@ Use this MCP when you need to:
 ### Prompts (2)
 | Prompt | Description |
 |--------|-------------|
-| `app_release_checklist` | Guided checklist for releasing an app update — walks through version creation, metadata, build assignment and submission for iOS and/or Android |
+| `app_release_checklist` | Guided checklist from signed artifact upload through review, release, and publishing-status checks for iOS and/or Android |
 | `app_store_optimization` | ASO audit that reviews current listing metadata (title, description, keywords, screenshots, localization) and provides actionable improvement recommendations |
 
 ### Resources (2)
@@ -99,13 +109,20 @@ npm run build
 2. Create an API Key with **App Manager** role
 3. Download the `.p8` file
 4. Note the **Key ID** and, for team keys, the **Issuer ID**. For an individual key, set `APPLE_KEY_TYPE=INDIVIDUAL` and omit the issuer ID.
+5. Use a Team API key with suitable access for Bundle ID, certificate, profile, capability, or device tools.
 
 ### 3. Google Credentials
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Enable **Google Play Android Developer API**
-3. Create a **Service Account** and download the JSON key
-4. In Google Play Console, grant the service account access under **Settings > API access**
+Enable the **Google Play Android Developer API**, then choose one authentication method:
+
+- **Service account:** Create one in [Google Cloud Console](https://console.cloud.google.com/), download its JSON key, then invite its email and grant the needed app permissions in Play Console under **Users and permissions**.
+- **OAuth:** Create a Desktop OAuth client, then run:
+
+```bash
+app-publish-mcp auth google --client-id=YOUR_ID --client-secret=YOUR_SECRET
+```
+
+The OAuth command stores the refresh token in `~/.app-publish-mcp/google.json`; the server loads it automatically. You can instead set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REFRESH_TOKEN` explicitly.
 
 ### 4. Configure Environment
 
@@ -121,6 +138,8 @@ APPLE_ISSUER_ID=YOUR_ISSUER_ID
 APPLE_P8_PATH=/path/to/AuthKey.p8
 GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
 ```
+
+The server automatically loads `.env` from the package/project root. Environment variables supplied by the shell or MCP host take precedence. For OAuth variables, see `.env.example`.
 
 ### 5. Add to Claude Code
 
@@ -149,27 +168,34 @@ Add to `~/.claude/settings.local.json`:
 ### Submit an iOS app update
 
 ```
-1. apple_list_apps → get app ID
-2. apple_create_version → create version 1.1.0
-3. apple_list_version_localizations → get localization IDs
-4. apple_update_version_localization → set whatsNew, description
-5. apple_list_builds → find the uploaded build
-6. apple_assign_build → attach build to version
-7. apple_update_review_detail → set reviewer contact info
-8. apple_submit_for_review → submit!
+1. apple_list_apps → get the app ID
+2. apple_create_version / apple_update_version and localization tools → prepare version 1.1.0, release settings, and metadata
+3. apple_upload_build → upload the signed IPA and wait for import
+   (or resume with apple_get_build_upload / apple_wait_for_build_upload)
+   If an ambiguous commit error retains a buildUploadId, inspect it with apple_get_build_upload; when it is AWAITING_UPLOAD or FAILED, delete it with apple_delete_build_upload before uploading again.
+4. apple_set_build_encryption → answer export-compliance encryption for the imported build
+   (`true` can still require a manual encryption declaration, supporting documents, and appEncryptionDeclaration linkage in App Store Connect.)
+5. apple_assign_build → attach the imported build to the version
+6. apple_update_review_detail and apple_get_age_rating → verify review metadata
+7. apple_submit_for_review → submit for App Review
+8. For an update (not a first version), optionally configure a seven-day phased release before release.
+9. After approval, use apple_release_version only for PENDING_DEVELOPER_RELEASE; then monitor or manage any phased release.
 ```
 
 ### Release an Android app
 
 ```
-1. google_create_edit → start edit session
-2. google_update_details → update contact info
-3. google_update_listing → update store listing
-4. google_upload_bundle → upload .aab file
-5. google_create_release → select the complete versionCodes set and create the release on production
+1. google_create_edit → start an edit (or google_get_edit to verify a resumed edit)
+2. google_list_bundles / google_list_apks → reuse an artifact already in the edit when possible
+3. google_upload_bundle / google_upload_apk → upload only when the artifact is missing
+4. Listing tools and google_update_data_safety → apply reviewed store changes as needed
+5. google_create_release → create the target-track release with the exact versionCodes set
 6. google_validate_edit → check for errors
-7. google_commit_edit → publish changes
+7. google_commit_edit → commit changes for Play processing
+8. google_list_release_statuses → inspect review and publishing state after commit
 ```
+
+Committing an edit does not guarantee immediate public availability. Google Play review, managed publishing, and staged rollout settings still apply.
 
 ### Manage Google Play in-app products
 
