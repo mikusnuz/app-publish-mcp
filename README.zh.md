@@ -14,7 +14,10 @@
 
 ## 功能特性
 
-### Apple App Store Connect（86个工具）
+新的截图和预览视频请使用 Asset Library，支持获取官方规格、上传、等待处理、放置、排序和删除。请参阅[英文版操作流程](README.md#upload-and-arrange-apple-screenshots-or-preview-videos)。旧截图 API 已在 4.5.1 中弃用，但尚未公布停用日期，现有工具保留兼容性。韩国年龄分级 override 也支持 `ALL` 和 `TWELVE_PLUS`。
+
+### Apple App Store Connect（98个工具）
+
 | 类别 | 工具 |
 |----------|-------|
 | 应用管理 | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_update_app`, `apple_get_app_info`, `apple_update_category` |
@@ -23,7 +26,9 @@
 | 版本管理 | `apple_list_versions`, `apple_create_version`, `apple_update_version` |
 | 版本本地化 | `apple_list_version_localizations`, `apple_create_version_localization`, `apple_update_version_localization` |
 | 应用信息本地化 | `apple_list_app_info_localizations`, `apple_update_app_info_localization` |
-| 截图 | `apple_list_screenshot_sets`, `apple_create_screenshot_set`, `apple_upload_screenshot`, `apple_delete_screenshot` |
+| Asset Library | `apple_get_asset_library`, `apple_get_asset_specs`, `apple_list_assets`, `apple_get_asset`, `apple_wait_for_asset`, `apple_upload_asset`, `apple_list_asset_placements`, `apple_delete_asset` |
+| Asset Placements | `apple_list_placements`, `apple_create_placement`, `apple_reorder_placements`, `apple_delete_placement` |
+| 旧版截图（已弃用） | `apple_list_screenshot_sets`, `apple_create_screenshot_set`, `apple_upload_screenshot`, `apple_delete_screenshot` |
 | 构建版本 | `apple_list_builds`, `apple_get_build_upload`, `apple_wait_for_build_upload`, `apple_delete_build_upload`, `apple_upload_build`, `apple_set_build_encryption`, `apple_assign_build` |
 | 年龄分级 | `apple_get_age_rating`, `apple_update_age_rating` |
 | 审核信息 | `apple_update_review_detail` |

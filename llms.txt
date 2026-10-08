@@ -22,9 +22,21 @@
 }
 ```
 
-## Tools (135 total)
+## Tools (147 total)
 
-### Apple App Store Connect (86)
+### Apple App Store Connect (98)
+- apple_get_asset_library — Get the app's Asset Library ID
+- apple_get_asset_specs — Get current image/video specs and compatible placement types/groups
+- apple_list_assets — List images or videos in an Asset Library
+- apple_get_asset — Inspect asset processing state, spec and errors
+- apple_wait_for_asset — Wait for a ready asset, preserving its ID on timeout or failure
+- apple_upload_asset — Upload an image/video against expectedSpecId and optionally wait for processing
+- apple_list_asset_placements — List all places using an asset before deletion
+- apple_delete_asset — Delete an unused asset; refuses while placements remain
+- apple_list_placements — Read placements for a localization
+- apple_create_placement — Place a ready asset on a localization, reusing an identical placement
+- apple_reorder_placements — Replace and verify the complete ordering of a placement group (not in-app events)
+- apple_delete_placement — Remove only the placement, keeping its library asset
 - apple_list_apps — List all apps in App Store Connect
 - apple_get_next_page — Fetch an exact App Store Connect pagination URL
 - apple_get_app — Get app details by ID
@@ -44,10 +56,10 @@
 - apple_update_version_localization — Update version localization (whatsNew, description, keywords)
 - apple_list_app_info_localizations — List app info localizations
 - apple_update_app_info_localization — Update app info localization
-- apple_list_screenshot_sets — List screenshot sets for a localization
-- apple_create_screenshot_set — Create a screenshot set for a display type
-- apple_upload_screenshot — Upload a screenshot image
-- apple_delete_screenshot — Delete a screenshot
+- apple_list_screenshot_sets — Deprecated legacy screenshot sets; prefer Asset Library tools
+- apple_create_screenshot_set — Deprecated legacy screenshot set creation
+- apple_upload_screenshot — Deprecated legacy screenshot upload; prefer apple_upload_asset then apple_create_placement
+- apple_delete_screenshot — Deprecated legacy screenshot deletion
 - apple_list_builds — List uploaded builds
 - apple_get_build_upload — Get a build-upload operation and imported build state
 - apple_wait_for_build_upload — Wait for a build upload to complete or fail

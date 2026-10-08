@@ -17,7 +17,7 @@ The first release of a new app still requires manual setup in App Store Connect 
 Use this MCP when you need to:
 
 - **"Update my app's App Store description and keywords"** — modify version localizations, app info localizations
-- **"Upload new screenshots for iPhone 16 Pro"** — create screenshot sets and upload images
+- **"Upload new screenshots for iPhone 16 Pro"** — upload to the Asset Library and place images on the version localization
 - **"Submit a new version for review"** — create version, assign build, set review info, submit
 - **"Check the status of my app review"** — list versions and check review state
 - **"Respond to a user review on Google Play"** — list reviews and reply
@@ -28,7 +28,8 @@ Use this MCP when you need to:
 
 ## Features
 
-### Apple App Store Connect (86 tools)
+### Apple App Store Connect (98 tools)
+
 | Category | Tools |
 |----------|-------|
 | App Management | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_update_app`, `apple_get_app_info`, `apple_update_category` |
@@ -37,7 +38,9 @@ Use this MCP when you need to:
 | Versions | `apple_list_versions`, `apple_create_version`, `apple_update_version` |
 | Version Localizations | `apple_list_version_localizations`, `apple_create_version_localization`, `apple_update_version_localization` |
 | App Info Localizations | `apple_list_app_info_localizations`, `apple_update_app_info_localization` |
-| Screenshots | `apple_list_screenshot_sets`, `apple_create_screenshot_set`, `apple_upload_screenshot`, `apple_delete_screenshot` |
+| Asset Library | `apple_get_asset_library`, `apple_get_asset_specs`, `apple_list_assets`, `apple_get_asset`, `apple_wait_for_asset`, `apple_upload_asset`, `apple_list_asset_placements`, `apple_delete_asset` |
+| Asset Placements | `apple_list_placements`, `apple_create_placement`, `apple_reorder_placements`, `apple_delete_placement` |
+| Legacy Screenshots (deprecated) | `apple_list_screenshot_sets`, `apple_create_screenshot_set`, `apple_upload_screenshot`, `apple_delete_screenshot` |
 | Builds | `apple_list_builds`, `apple_get_build_upload`, `apple_wait_for_build_upload`, `apple_delete_build_upload`, `apple_upload_build`, `apple_set_build_encryption`, `apple_assign_build` |
 | Age Rating | `apple_get_age_rating`, `apple_update_age_rating` |
 | Review Info | `apple_update_review_detail` |
@@ -164,6 +167,17 @@ Add to `~/.claude/settings.local.json`:
 ```
 
 ## Usage Examples
+
+### Upload and arrange Apple screenshots or preview videos
+
+1. `apple_get_asset_library(appId)` returns the app's library ID. Use `apple_get_asset_specs` to select the current spec, compatible placement type and placement group; do not guess device dimensions or group identifiers.
+2. `apple_upload_asset` takes `assetLibraryId`, `mediaType` (`IMAGE` or `VIDEO`), `filePath`, and `expectedSpecId`. It validates the file extension/size against Apple's specs, uploads all parts, commits, and waits for processing by default. Videos also accept `previewFrameTimeCode`.
+3. If processing times out or fails, retain the returned asset ID and inspect it with `apple_get_asset` / `apple_wait_for_asset`. Do not blindly upload a duplicate. `waitForProcessing=false` returns sooner, but a ready asset is required for placement.
+4. `apple_create_placement` links the asset to a `localizationId` using the selected `placementType` and `placementGroup`. The default `targetType` is `appStoreVersionLocalizations`; custom product pages, experiment treatments, and in-app events are also supported. Repeating the same placement reuses it.
+5. Read `apple_list_placements`, then pass **all** placement IDs in the desired group order to `apple_reorder_placements`. In-app events do not support this ordering endpoint.
+6. `apple_delete_placement` removes a placement only. `apple_list_asset_placements` shows everywhere an asset is used; `apple_delete_asset` refuses to delete an asset still in use.
+
+Apple deprecated the legacy screenshot endpoints in [App Store Connect API 4.5.1](https://developer.apple.com/documentation/appstoreconnectapi/app-store-connect-api-4-5-1-release-notes). The four existing screenshot tools remain for compatibility; Apple has not announced their shutdown date. Use the [Asset Library workflow](https://developer.apple.com/documentation/appstoreconnectapi/migrating-to-the-app-asset-library) for new work. Korea age-rating overrides now also support `ALL` and `TWELVE_PLUS`.
 
 ### Submit an iOS app update
 

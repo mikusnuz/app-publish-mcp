@@ -14,7 +14,10 @@
 
 ## 機能
 
-### Apple App Store Connect (86ツール)
+新しいスクリーンショット・プレビュー動画には Asset Library を使用してください。公式の仕様を取得し、アップロード、処理完了確認、配置、並び替え、削除まで対応します。[手順は英語版](README.md#upload-and-arrange-apple-screenshots-or-preview-videos)を参照してください。旧スクリーンショット API は 4.5.1 で非推奨になりましたが、終了日は未発表のため既存ツールは互換性を維持しています。韓国の年齢制限 override は `ALL`・`TWELVE_PLUS` にも対応します。
+
+### Apple App Store Connect (98ツール)
+
 | カテゴリ | ツール |
 |----------|-------|
 | アプリ管理 | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_update_app`, `apple_get_app_info`, `apple_update_category` |
@@ -23,7 +26,9 @@
 | バージョン | `apple_list_versions`, `apple_create_version`, `apple_update_version` |
 | バージョンローカライゼーション | `apple_list_version_localizations`, `apple_create_version_localization`, `apple_update_version_localization` |
 | アプリ情報ローカライゼーション | `apple_list_app_info_localizations`, `apple_update_app_info_localization` |
-| スクリーンショット | `apple_list_screenshot_sets`, `apple_create_screenshot_set`, `apple_upload_screenshot`, `apple_delete_screenshot` |
+| Asset Library | `apple_get_asset_library`, `apple_get_asset_specs`, `apple_list_assets`, `apple_get_asset`, `apple_wait_for_asset`, `apple_upload_asset`, `apple_list_asset_placements`, `apple_delete_asset` |
+| Asset Placements | `apple_list_placements`, `apple_create_placement`, `apple_reorder_placements`, `apple_delete_placement` |
+| 旧スクリーンショット (非推奨) | `apple_list_screenshot_sets`, `apple_create_screenshot_set`, `apple_upload_screenshot`, `apple_delete_screenshot` |
 | ビルド | `apple_list_builds`, `apple_get_build_upload`, `apple_wait_for_build_upload`, `apple_delete_build_upload`, `apple_upload_build`, `apple_set_build_encryption`, `apple_assign_build` |
 | 年齢制限 | `apple_get_age_rating`, `apple_update_age_rating` |
 | レビュー情報 | `apple_update_review_detail` |

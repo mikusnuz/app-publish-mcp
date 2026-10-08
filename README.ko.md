@@ -14,7 +14,8 @@
 
 ## 기능
 
-### Apple App Store Connect (86개 도구)
+### Apple App Store Connect (98개 도구)
+
 | 카테고리 | 도구 |
 |----------|-------|
 | 앱 관리 | `apple_list_apps`, `apple_get_next_page`, `apple_get_app`, `apple_update_app`, `apple_get_app_info`, `apple_update_category` |
@@ -23,7 +24,9 @@
 | 버전 | `apple_list_versions`, `apple_create_version`, `apple_update_version` |
 | 버전 로컬라이제이션 | `apple_list_version_localizations`, `apple_create_version_localization`, `apple_update_version_localization` |
 | 앱 정보 로컬라이제이션 | `apple_list_app_info_localizations`, `apple_update_app_info_localization` |
-| 스크린샷 | `apple_list_screenshot_sets`, `apple_create_screenshot_set`, `apple_upload_screenshot`, `apple_delete_screenshot` |
+| Asset Library | `apple_get_asset_library`, `apple_get_asset_specs`, `apple_list_assets`, `apple_get_asset`, `apple_wait_for_asset`, `apple_upload_asset`, `apple_list_asset_placements`, `apple_delete_asset` |
+| Asset Placements | `apple_list_placements`, `apple_create_placement`, `apple_reorder_placements`, `apple_delete_placement` |
+| 기존 스크린샷 (deprecated) | `apple_list_screenshot_sets`, `apple_create_screenshot_set`, `apple_upload_screenshot`, `apple_delete_screenshot` |
 | 빌드 | `apple_list_builds`, `apple_get_build_upload`, `apple_wait_for_build_upload`, `apple_delete_build_upload`, `apple_upload_build`, `apple_set_build_encryption`, `apple_assign_build` |
 | 연령 등급 | `apple_get_age_rating`, `apple_update_age_rating` |
 | 리뷰 정보 | `apple_update_review_detail` |
@@ -146,6 +149,17 @@ GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
 ```
 
 ## 사용 예제
+
+### Apple 스크린샷·미리보기 영상 업로드 및 배치
+
+1. `apple_get_asset_library(appId)`로 라이브러리 ID를 얻고, `apple_get_asset_specs`로 현재 규격과 호환되는 placement type·group을 확인합니다. 기기 해상도나 group ID를 추측하지 마세요.
+2. `apple_upload_asset`에 `assetLibraryId`, `mediaType` (`IMAGE` / `VIDEO`), `filePath`, `expectedSpecId`를 전달합니다. 공식 규격의 확장자·크기 확인, 분할 업로드, 완료 처리, 처리 상태 대기를 수행합니다. 영상은 `previewFrameTimeCode`도 지정할 수 있습니다.
+3. 시간 초과·처리 실패 시 에셋 ID를 보존하고 `apple_get_asset` / `apple_wait_for_asset`로 상태를 확인하세요. 같은 파일을 무작정 다시 업로드하지 않습니다. `waitForProcessing=false`로 먼저 반환받아도 배치 전에는 준비 완료가 필요합니다.
+4. `apple_create_placement`로 `localizationId`에 에셋을 연결하며 앞서 확인한 `placementType`·`placementGroup`을 지정합니다. `targetType` 기본값은 `appStoreVersionLocalizations`이며 맞춤 제품 페이지·실험 처리·앱 내 이벤트도 지원합니다. 같은 배치는 재사용합니다.
+5. `apple_list_placements` 조회 후 원하는 순서로 해당 그룹의 **전체** placement ID를 `apple_reorder_placements`에 전달합니다. 앱 내 이벤트는 이 정렬 API를 지원하지 않습니다.
+6. `apple_delete_placement`는 배치만 삭제합니다. `apple_list_asset_placements`로 사용처를 확인할 수 있고 `apple_delete_asset`는 사용 중인 에셋 삭제를 거부합니다.
+
+Apple은 [App Store Connect API 4.5.1](https://developer.apple.com/documentation/appstoreconnectapi/app-store-connect-api-4-5-1-release-notes)에서 기존 스크린샷 API를 deprecated로 지정했지만 종료일은 발표하지 않았습니다. 기존 4개 도구는 호환성을 위해 유지하며, 새 작업에는 [Asset Library](https://developer.apple.com/documentation/appstoreconnectapi/migrating-to-the-app-asset-library)를 사용하세요. 한국 연령 등급 override에는 `ALL`·`TWELVE_PLUS`도 사용할 수 있습니다.
 
 ### iOS 앱 업데이트 제출
 

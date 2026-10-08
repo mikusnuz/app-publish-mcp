@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { AppleApiError, AppleClient } from './client.js';
+import { assetLibraryTools } from './asset-library.js';
 
 // Helper to define a tool
 interface ToolDef {
@@ -605,7 +606,7 @@ const updateVersionLocalization: ToolDef = {
 
 const listScreenshotSets: ToolDef = {
   name: 'apple_list_screenshot_sets',
-  description: 'List screenshot sets for a localization',
+  description: 'Legacy: list screenshot sets for a localization. Apple deprecated this API in 4.5.1; use apple_list_placements for Asset Library media.',
   schema: z.object({
     localizationId: z.string().describe('Version Localization ID'),
   }),
@@ -619,7 +620,7 @@ const listScreenshotSets: ToolDef = {
 
 const createScreenshotSet: ToolDef = {
   name: 'apple_create_screenshot_set',
-  description: 'Create a screenshot set for a specific display type',
+  description: 'Legacy: create a screenshot set for a specific display type. Deprecated by Apple; prefer apple_upload_asset and apple_create_placement.',
   schema: z.object({
     localizationId: z.string().describe('Version Localization ID'),
     displayType: z.string().describe('Display type (e.g. APP_IPHONE_67, APP_IPHONE_65, APP_IPAD_PRO_129, APP_IPAD_PRO_3GEN_129)'),
@@ -644,7 +645,7 @@ const createScreenshotSet: ToolDef = {
 
 const uploadScreenshot: ToolDef = {
   name: 'apple_upload_screenshot',
-  description: 'Upload and commit a screenshot while preserving its ID for safe recovery after ambiguous failures',
+  description: 'Legacy: upload and commit a screenshot while preserving its ID for recovery. Deprecated by Apple; prefer apple_upload_asset and apple_create_placement.',
   schema: z.object({
     screenshotSetId: z.string().describe('Screenshot Set ID'),
     filePath: z.string().describe('Local path to the screenshot image'),
@@ -808,7 +809,7 @@ const uploadScreenshot: ToolDef = {
 
 const deleteScreenshot: ToolDef = {
   name: 'apple_delete_screenshot',
-  description: 'Delete a screenshot',
+  description: 'Legacy: delete a screenshot from the deprecated screenshot-set API. Use apple_delete_placement and apple_delete_asset for Asset Library media.',
   schema: z.object({
     screenshotId: z.string().describe('Screenshot ID'),
   }),
@@ -1210,7 +1211,7 @@ const updateAgeRating: ToolDef = {
     violenceRealisticProlongedGraphicOrSadistic: ageRatingFrequency.nullable().optional(),
     violenceRealistic: ageRatingFrequency.nullable().optional(),
     ageRatingOverrideV2: z.enum(['NONE', 'NINE_PLUS', 'THIRTEEN_PLUS', 'SIXTEEN_PLUS', 'EIGHTEEN_PLUS', 'UNRATED']).nullable().optional(),
-    koreaAgeRatingOverride: z.enum(['NONE', 'FIFTEEN_PLUS', 'NINETEEN_PLUS']).nullable().optional(),
+    koreaAgeRatingOverride: z.enum(['NONE', 'ALL', 'TWELVE_PLUS', 'FIFTEEN_PLUS', 'NINETEEN_PLUS']).nullable().optional(),
     developerAgeRatingInfoUrl: z.string().url().nullable().optional(),
   }),
   handler: async (client, args) => {
@@ -2977,6 +2978,7 @@ const getWinBackOffer: ToolDef = {
 // ═══════════════════════════════════════════
 
 export const appleTools: ToolDef[] = [
+  ...assetLibraryTools,
   // App Management
   listApps, getNextPage, getApp, updateApp, getAppInfo, updateAppInfoCategory,
   // Bundle IDs

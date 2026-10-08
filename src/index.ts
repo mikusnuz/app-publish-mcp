@@ -127,7 +127,7 @@ server.prompt(
               '3. Use apple_upload_build to upload the signed IPA and wait for import; resume an asynchronous upload with apple_get_build_upload or apple_wait_for_build_upload',
               '4. Use apple_set_build_encryption to answer export-compliance encryption for the imported build; if true, the user may still need a manual encryption declaration, supporting documents, and appEncryptionDeclaration linkage in App Store Connect',
               '5. Use apple_assign_build to attach the imported build to the version',
-              '6. Use apple_update_review_detail and apple_get_age_rating to verify review metadata',
+              '6. Use apple_get_asset_specs, apple_get_asset_library, apple_upload_asset, apple_create_placement, and apple_reorder_placements to prepare screenshots or previews; then verify review metadata with apple_update_review_detail and apple_get_age_rating',
               '7. Use apple_submit_for_review to submit for App Review',
               '8. For an update (not a first version), optionally configure a seven-day phased release before release',
               '9. After approval, call apple_release_version only when the version is PENDING_DEVELOPER_RELEASE, then monitor or manage any phased release',
@@ -176,7 +176,7 @@ server.prompt(
               `2. Use apple_get_app_info with appId="${appId}" to check categories`,
               `3. Use apple_list_versions with appId="${appId}" to find the latest live version`,
               '4. Use apple_list_version_localizations to get all localized metadata',
-              '5. Use apple_list_screenshot_sets for each localization to verify screenshots exist',
+              '5. Use apple_list_placements for each localization to verify Asset Library screenshots and previews; use apple_list_screenshot_sets only for legacy media not yet migrated',
               `6. Use apple_list_reviews with appId="${appId}" and sort="-createdDate" to get recent reviews`,
             ].join('\n') : [
               'Steps:',
