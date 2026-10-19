@@ -22,9 +22,9 @@
 }
 ```
 
-## Tools (147 total)
+## Tools (188 total)
 
-### Apple App Store Connect (98)
+### Apple App Store Connect (135)
 - apple_get_asset_library — Get the app's Asset Library ID
 - apple_get_asset_specs — Get current image/video specs and compatible placement types/groups
 - apple_list_assets — List images or videos in an Asset Library
@@ -37,6 +37,11 @@
 - apple_create_placement — Place a ready asset on a localization, reusing an identical placement
 - apple_reorder_placements — Replace and verify the complete ordering of a placement group (not in-app events)
 - apple_delete_placement — Remove only the placement, keeping its library asset
+- apple_list_review_submissions — List review drafts and active submissions for an app/platform
+- apple_get_review_submission — Inspect a submission and all its item IDs
+- apple_create_review_submission — Create a review draft without submitting
+- apple_add_review_submission_item — Attach an asset, custom page version, v2 experiment or app version without submitting
+- apple_submit_review_submission — Start review after checking the complete expected item ID set
 - apple_list_apps — List all apps in App Store Connect
 - apple_get_next_page — Fetch an exact App Store Connect pagination URL
 - apple_get_app — Get app details by ID
@@ -123,8 +128,40 @@
 - apple_create_iap_offer_code — Create an in-app purchase offer code
 - apple_list_win_back_offers — List win-back offers for a subscription
 - apple_get_win_back_offer — Get a win-back offer
+- apple_list_custom_product_pages — List custom product pages with versions and campaign URLs
+- apple_get_custom_product_page — Get a custom product page with its versions
+- apple_create_custom_product_page — Create a custom product page with version and localizations
+- apple_update_custom_product_page — Rename a custom product page or change its visibility
+- apple_delete_custom_product_page — Delete a custom product page
+- apple_list_custom_product_page_versions — List versions of a custom product page
+- apple_create_custom_product_page_version — Start a new version of an approved custom product page
+- apple_update_custom_product_page_version — Change a custom product page version's deep link
+- apple_list_custom_product_page_localizations — List localizations (placement targets) of a page version
+- apple_create_custom_product_page_localization — Add a locale to a custom product page version
+- apple_update_custom_product_page_localization — Change a custom product page's promotional text
+- apple_delete_custom_product_page_localization — Remove a locale from a custom product page version
+- apple_list_experiments — List product page optimization tests
+- apple_get_experiment — Get a product page optimization test with treatments
+- apple_create_experiment — Create a product page optimization test
+- apple_update_experiment — Rename, change traffic share, or start a test
+- apple_delete_experiment — Delete a product page optimization test
+- apple_list_experiment_treatments — List treatments (variants) of a test
+- apple_create_experiment_treatment — Add a treatment to a test
+- apple_update_experiment_treatment — Rename a treatment or change its alternate icon
+- apple_delete_experiment_treatment — Delete a treatment
+- apple_list_treatment_localizations — List localizations (placement targets) of a treatment
+- apple_create_treatment_localization — Add a locale to a treatment
+- apple_delete_treatment_localization — Remove a locale from a treatment
+- apple_get_sales_report — Download a Sales and Trends report as rows
+- apple_get_finance_report — Download a monthly financial report as rows
+- apple_list_analytics_report_requests — List App Analytics report requests
+- apple_create_analytics_report_request — Start App Analytics report generation for an app
+- apple_list_analytics_reports — List analytics reports for a request
+- apple_list_analytics_report_instances — List generated instances of an analytics report
+- apple_list_analytics_report_segments — List segment files of a report instance
+- apple_download_analytics_report — Download, unzip and merge an analytics report instance
 
-### Google Play Console (49)
+### Google Play Console (53)
 - google_create_edit — Start a new edit session
 - google_get_edit — Get an edit session and its expiry time
 - google_commit_edit — Commit an edit for Google Play processing
@@ -174,6 +211,10 @@
 - google_delete_one_time_product — Delete a one-time product
 - google_activate_purchase_option — Activate a one-time product purchase option
 - google_deactivate_purchase_option — Deactivate a one-time product purchase option
+- google_query_vitals — Query Android vitals (crash, ANR, slow start, rendering, memory) by day
+- google_list_vitals_anomalies — List anomalies Google detected in Android vitals
+- google_search_vitals_error_issues — Search crash and ANR clusters with counts, cause and location
+- google_search_vitals_error_reports — Fetch crash/ANR reports with full stack traces
 
 ### Prompts (2)
 - app_release_checklist — Guided checklist for releasing an app update
@@ -195,3 +236,7 @@
 | `GOOGLE_CLIENT_ID` | Android option 2 | Google Desktop OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Android option 2 | Google Desktop OAuth client secret |
 | `GOOGLE_REFRESH_TOKEN` | Android option 2 | Google OAuth refresh token |
+| `APPLE_VENDOR_NUMBER` | Sales/finance reports | Vendor number from Payments and Financial Reports |
+| `APPLE_REPORTS_KEY_ID` / `APPLE_REPORTS_P8_PATH` | No | Extra key for Sales/Finance/Analytics reports (e.g. Sales and Reports role) |
+| `APPLE_ADMIN_KEY_ID` / `APPLE_ADMIN_P8_PATH` | No | Admin key for analytics requests and finance/reporting fallback |
+| `APP_PUBLISH_READ_ONLY` | No | `true` registers only read tools (list/get/search/query/download, no Google edit creation or deletion) |

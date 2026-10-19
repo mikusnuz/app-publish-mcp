@@ -17,6 +17,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import type { AddressInfo } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { GOOGLE_SCOPES } from './google/scopes.js';
 
 const CONFIG_DIR = join(homedir(), '.app-publish-mcp');
 const GOOGLE_TOKEN_PATH = join(CONFIG_DIR, 'google.json');
@@ -24,7 +25,7 @@ export const GOOGLE_OAUTH_CALLBACK_HOST = '127.0.0.1';
 
 // Embedded OAuth client — registered as "Desktop app" type so no client secret leak risk
 const EMBEDDED_CLIENT_ID = ''; // will be set by user or embedded
-const SCOPES = ['https://www.googleapis.com/auth/androidpublisher'];
+const SCOPES = GOOGLE_SCOPES;
 
 export interface TokenStore {
   clientId: string;

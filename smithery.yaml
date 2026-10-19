@@ -31,6 +31,39 @@ startCommand:
       googleRefreshToken:
         type: string
         description: Google OAuth refresh token
+      appleVendorNumber:
+        type: string
+        description: Apple vendor number for sales and finance reports
+      appleReportsKeyId:
+        type: string
+        description: Optional reports API Key ID (requires appleReportsP8Path)
+      appleReportsP8Path:
+        type: string
+        description: Path to the reports key .p8 file
+      appleReportsIssuerId:
+        type: string
+        description: Reports key issuer (defaults to the main key issuer)
+      appleReportsKeyType:
+        type: string
+        enum: [TEAM, INDIVIDUAL]
+        description: Reports key type (defaults to the main key type)
+      appleAdminKeyId:
+        type: string
+        description: Optional Admin API Key ID (requires appleAdminP8Path)
+      appleAdminP8Path:
+        type: string
+        description: Path to the Admin key .p8 file
+      appleAdminIssuerId:
+        type: string
+        description: Admin key issuer (defaults to the main key issuer)
+      appleAdminKeyType:
+        type: string
+        enum: [TEAM, INDIVIDUAL]
+        description: Admin key type (defaults to the main key type)
+      readOnly:
+        type: boolean
+        default: false
+        description: Register only read tools (list/get/search/query/download, no Google edit creation or deletion)
   commandFunction:
     |-
-    config => ({ command: 'npx', args: ['-y', 'app-publish-mcp'], env: { APPLE_KEY_ID: config.appleKeyId || '', APPLE_KEY_TYPE: config.appleKeyType || 'TEAM', APPLE_ISSUER_ID: config.appleIssuerId || '', APPLE_P8_PATH: config.appleP8Path || '', GOOGLE_SERVICE_ACCOUNT_PATH: config.googleServiceAccountPath || '', GOOGLE_CLIENT_ID: config.googleClientId || '', GOOGLE_CLIENT_SECRET: config.googleClientSecret || '', GOOGLE_REFRESH_TOKEN: config.googleRefreshToken || '' } })
+    config => ({ command: 'npx', args: ['-y', 'app-publish-mcp'], env: { APPLE_KEY_ID: config.appleKeyId || '', APPLE_KEY_TYPE: config.appleKeyType || 'TEAM', APPLE_ISSUER_ID: config.appleIssuerId || '', APPLE_P8_PATH: config.appleP8Path || '', GOOGLE_SERVICE_ACCOUNT_PATH: config.googleServiceAccountPath || '', GOOGLE_CLIENT_ID: config.googleClientId || '', GOOGLE_CLIENT_SECRET: config.googleClientSecret || '', GOOGLE_REFRESH_TOKEN: config.googleRefreshToken || '', APPLE_VENDOR_NUMBER: config.appleVendorNumber || '', APP_PUBLISH_READ_ONLY: config.readOnly ? 'true' : '', APPLE_REPORTS_KEY_ID: config.appleReportsKeyId || '', APPLE_REPORTS_P8_PATH: config.appleReportsP8Path || '', APPLE_REPORTS_ISSUER_ID: config.appleReportsIssuerId || config.appleIssuerId || '', APPLE_REPORTS_KEY_TYPE: config.appleReportsKeyType || config.appleKeyType || 'TEAM', APPLE_ADMIN_KEY_ID: config.appleAdminKeyId || '', APPLE_ADMIN_P8_PATH: config.appleAdminP8Path || '', APPLE_ADMIN_ISSUER_ID: config.appleAdminIssuerId || config.appleIssuerId || '', APPLE_ADMIN_KEY_TYPE: config.appleAdminKeyType || config.appleKeyType || 'TEAM' } })

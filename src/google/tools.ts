@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { androidpublisher_v3 } from 'googleapis';
 import { GoogleClient } from './client.js';
+import { vitalsTools } from './vitals.js';
 
 interface ToolDef {
   name: string;
@@ -741,7 +742,7 @@ const updateDataSafety: ToolDef = {
 const listReviews: ToolDef = {
   name: 'google_list_reviews',
   description:
-    'List user reviews for an app. Note: the Play Developer API reviews.list endpoint only surfaces recent reviews and requires the "Reply to reviews" account permission for the linked service account (Play Console → Users and permissions). If this returns an empty array for an app with visible reviews in Play Console, verify that permission first, then use pageToken to page through more results.',
+    'List production-app reviews with comments created or modified within the last 7 days. Ratings without comments and alpha/beta feedback are excluded. Requires Reply to reviews permission. pageToken pages only within that 7-day window; use Play Console CSV export for older history. An empty result alone does not indicate missing permission.',
   schema: z.object({
     packageName: z.string().describe('Android package name'),
     maxResults: z.number().optional().describe('Max reviews to return per page (API max is 100)'),
@@ -1473,4 +1474,6 @@ export const googleTools: ToolDef[] = [
   // One-time Products
   listOneTimeProducts, getOneTimeProduct, createOneTimeProduct, updateOneTimeProduct, deleteOneTimeProduct,
   activatePurchaseOption, deactivatePurchaseOption,
+  // Android vitals (Play Developer Reporting API)
+  ...vitalsTools,
 ];

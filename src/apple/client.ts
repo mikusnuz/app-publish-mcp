@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { DownloadLimitError, readBoundedResponse } from './downloads.js';
 import { createReadStream, readFileSync, statSync } from 'node:fs';
 
 const MAX_UPLOAD_ERROR_DETAIL_LENGTH = 1_024;
@@ -17,11 +18,35 @@ function sanitizeUploadErrorDetail(value: string): string {
   return `${redacted.slice(0, MAX_UPLOAD_ERROR_DETAIL_LENGTH - 3)}...`;
 }
 
-export interface AppleConfig {
+export interface AppleKeyConfig {
   keyId: string;
   issuerId?: string;
   p8Path: string;
   keyType?: 'TEAM' | 'INDIVIDUAL';
+}
+
+export interface AppleConfig extends AppleKeyConfig {
+  /** Optional key for Sales/Finance/Analytics reports, e.g. a Sales and Reports key */
+  reportsKey?: AppleKeyConfig;
+  /** Optional Admin key for analytics requests and as a reporting/finance fallback. */
+  adminKey?: AppleKeyConfig;
+}
+
+export type AppleKeyPurpose = 'default' | 'reports' | 'finance' | 'admin';
+
+const REPORT_PATH = /^\/(salesReports|analyticsReportRequests|analyticsReports|analyticsReportInstances|analyticsReportSegments)(\/|$)|^\/apps\/[^/]+\/(relationships\/)?analyticsReportRequests(\/|$)/;
+
+/**
+ * Picks the key for a request by API, never by retrying with a stronger key:
+ * changing analytics report requests needs Admin, reading reports needs a
+ * reports-capable role, everything else uses the main key.
+ */
+export function keyPurpose(method: string, url: string): AppleKeyPurpose {
+  const path = new URL(url, 'https://api.appstoreconnect.apple.com').pathname.replace(/^\/v\d+/, '');
+  if (method !== 'GET' && /^\/analyticsReportRequests(\/|$)/.test(path)) return 'admin';
+  // Sales and Reports keys, Apple's suggestion for reporting, cannot read finance reports
+  if (/^\/financeReports(\/|$)/.test(path)) return 'finance';
+  return REPORT_PATH.test(path) ? 'reports' : 'default';
 }
 
 export class AppleApiError extends Error {
@@ -41,40 +66,51 @@ export class AppleClient {
   private config: AppleConfig;
   private baseOrigin = 'https://api.appstoreconnect.apple.com';
   private baseUrl = 'https://api.appstoreconnect.apple.com/v1';
-  private token: string | null = null;
-  private tokenExp = 0;
+  private tokens = new Map<string, { token: string; exp: number }>();
 
   constructor(config: AppleConfig) {
     this.config = config;
   }
 
-  private getToken(): string {
-    const now = Math.floor(Date.now() / 1000);
-    if (this.token && now < this.tokenExp - 60) return this.token;
+  /** The key used for a purpose: reports fall back to the Admin key, then to the main key. */
+  keyFor(purpose: AppleKeyPurpose = 'default'): AppleKeyConfig {
+    if (purpose === 'admin') return this.config.adminKey ?? this.config;
+    if (purpose === 'finance') return this.config.adminKey ?? this.config.reportsKey ?? this.config;
+    if (purpose === 'reports') return this.config.reportsKey ?? this.config.adminKey ?? this.config;
+    return this.config;
+  }
 
-    const privateKey = readFileSync(this.config.p8Path, 'utf8');
-    const keyType = this.config.keyType ?? 'TEAM';
-    if (keyType === 'TEAM' && !this.config.issuerId) {
+  private getToken(purpose: AppleKeyPurpose = 'default'): string {
+    const key = this.keyFor(purpose);
+    const now = Math.floor(Date.now() / 1000);
+    const cached = this.tokens.get(key.keyId);
+    if (cached && now < cached.exp - 60) return cached.token;
+
+    const privateKey = readFileSync(key.p8Path, 'utf8');
+    const keyType = key.keyType ?? 'TEAM';
+    if (keyType === 'TEAM' && !key.issuerId) {
       throw new Error('Apple team API keys require an issuerId');
     }
 
+    // Allow modest clock skew without exceeding Apple's 20-minute token lifetime.
+    const issuedAt = now - 60;
     const payload: Record<string, string | number> = {
-      iat: now,
-      exp: now + 20 * 60, // 20 minutes
+      iat: issuedAt,
+      exp: issuedAt + 20 * 60,
       aud: 'appstoreconnect-v1',
     };
     if (keyType === 'INDIVIDUAL') {
       payload.sub = 'user';
     } else {
-      payload.iss = this.config.issuerId!;
+      payload.iss = key.issuerId!;
     }
 
-    this.token = jwt.sign(payload, privateKey, {
+    const token = jwt.sign(payload, privateKey, {
       algorithm: 'ES256',
-      header: { alg: 'ES256', kid: this.config.keyId, typ: 'JWT' },
+      header: { alg: 'ES256', kid: key.keyId, typ: 'JWT' },
     });
-    this.tokenExp = now + 20 * 60;
-    return this.token;
+    this.tokens.set(key.keyId, { token, exp: issuedAt + 20 * 60 });
+    return token;
   }
 
   async request<T = any>(
@@ -83,9 +119,11 @@ export class AppleClient {
       method?: string;
       body?: any;
       params?: Record<string, string>;
+      /** Return the response body as a Buffer (gzip reports) instead of parsing JSON */
+      raw?: boolean;
     } = {},
   ): Promise<T> {
-    const { method = 'GET', body, params } = options;
+    const { method = 'GET', body, params, raw } = options;
     let url = path.startsWith('http')
       ? path
         : /^\/v\d+\//.test(path)
@@ -99,14 +137,16 @@ export class AppleClient {
       url = parsedUrl.toString();
     }
 
+    const purpose = keyPurpose(method, url);
     const maxAttempts = method === 'GET' ? 3 : 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         const res = await fetch(url, {
           method,
           headers: {
-            Authorization: `Bearer ${this.getToken()}`,
+            Authorization: `Bearer ${this.getToken(purpose)}`,
             'Content-Type': 'application/json',
+            ...(raw ? { Accept: 'application/a-gzip, application/json' } : {}),
           },
           body: body ? JSON.stringify(body) : undefined,
           signal: AbortSignal.timeout(30_000),
@@ -132,10 +172,14 @@ export class AppleClient {
           );
         }
 
+        if (raw) {
+          if (res.status === 204) throw new Error(`Apple API ${method} ${path} returned no content`);
+          return await readBoundedResponse(res) as T;
+        }
         if (res.status === 204) return {} as T;
         return await res.json() as T;
       } catch (error) {
-        if (error instanceof AppleApiError || attempt === maxAttempts) throw error;
+        if (error instanceof AppleApiError || error instanceof DownloadLimitError || attempt === maxAttempts) throw error;
         await new Promise(resolve => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
       }
     }

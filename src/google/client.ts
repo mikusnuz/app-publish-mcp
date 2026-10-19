@@ -1,8 +1,9 @@
-import { google, androidpublisher_v3 } from 'googleapis';
+import { google, androidpublisher_v3, playdeveloperreporting_v1beta1 } from 'googleapis';
 import { GoogleAuth, OAuth2Client } from 'google-auth-library';
 import { createReadStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
+import { GOOGLE_SCOPES } from './scopes.js';
 
 export type ChangesInReviewBehavior = 'CANCEL_IN_REVIEW_AND_SUBMIT' | 'ERROR_IF_IN_REVIEW';
 const UPLOAD_TIMEOUT_MS = 15 * 60_000;
@@ -16,6 +17,8 @@ export interface GoogleClientOptions {
 
 export class GoogleClient {
   private publisher: androidpublisher_v3.Androidpublisher;
+  private auth: GoogleAuth | OAuth2Client;
+  private reportingClient?: playdeveloperreporting_v1beta1.Playdeveloperreporting;
 
   constructor(opts: GoogleClientOptions) {
     let auth: GoogleAuth | OAuth2Client;
@@ -23,7 +26,7 @@ export class GoogleClient {
     if (opts.serviceAccountPath) {
       auth = new GoogleAuth({
         keyFile: opts.serviceAccountPath,
-        scopes: ['https://www.googleapis.com/auth/androidpublisher'],
+        scopes: GOOGLE_SCOPES,
       });
     } else if (opts.clientId && opts.clientSecret && opts.refreshToken) {
       const oauth2 = new OAuth2Client(opts.clientId, opts.clientSecret);
@@ -32,6 +35,7 @@ export class GoogleClient {
     } else {
       throw new Error('Google client requires either serviceAccountPath or clientId+clientSecret+refreshToken');
     }
+    this.auth = auth;
 
     this.publisher = google.androidpublisher({
       version: 'v3',
@@ -47,6 +51,18 @@ export class GoogleClient {
 
   get api() {
     return this.publisher;
+  }
+
+  /** Play Developer Reporting API (Android vitals). Needs the API enabled in the Cloud project. */
+  get reporting() {
+    this.reportingClient ??= google.playdeveloperreporting({
+      version: 'v1beta1',
+      auth: this.auth as any,
+      timeout: 30_000,
+      retry: true,
+      retryConfig: { retry: 2, noResponseRetries: 2 },
+    });
+    return this.reportingClient;
   }
 
   // ─── Edit lifecycle ───

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { AppleClient } from './apple/client.js';
+import { AppleClient, AppleKeyConfig } from './apple/client.js';
 import { GoogleClient } from './google/client.js';
 import { appleTools } from './apple/tools.js';
 import { googleTools } from './google/tools.js';
 import { loadSavedGoogleToken } from './auth.js';
+import { isReadOnlyMode, isReadTool } from './read-only.js';
 import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -36,12 +37,35 @@ const appleIssuerId = process.env.APPLE_ISSUER_ID;
 const appleP8Path = process.env.APPLE_P8_PATH;
 const appleKeyType = process.env.APPLE_KEY_TYPE === 'INDIVIDUAL' ? 'INDIVIDUAL' : 'TEAM';
 
+// Optional extra keys, picked per API: APPLE_REPORTS_* for Sales/Finance/Analytics
+// reports, APPLE_ADMIN_* for analytics requests and reporting/finance fallbacks.
+function extraAppleKey(prefix: string): AppleKeyConfig | undefined {
+  const keyId = process.env[`${prefix}_KEY_ID`];
+  const p8Path = process.env[`${prefix}_P8_PATH`];
+  if (!keyId && !p8Path) return undefined;
+  if (!keyId || !p8Path) throw new Error(`${prefix}_KEY_ID and ${prefix}_P8_PATH must be configured together`);
+  const keyType = process.env[`${prefix}_KEY_TYPE`] ?? appleKeyType;
+  if (keyType !== 'TEAM' && keyType !== 'INDIVIDUAL') throw new Error(`${prefix}_KEY_TYPE must be TEAM or INDIVIDUAL`);
+  const issuerId = process.env[`${prefix}_ISSUER_ID`] ?? appleIssuerId;
+  if (keyType === 'TEAM' && !issuerId) throw new Error(`${prefix}_ISSUER_ID is required for a TEAM key`);
+  return {
+    keyId,
+    p8Path,
+    issuerId,
+    keyType,
+  };
+}
+const appleReportsKey = extraAppleKey('APPLE_REPORTS');
+const appleAdminKey = extraAppleKey('APPLE_ADMIN');
+
 if (appleKeyId && appleP8Path && (appleKeyType === 'INDIVIDUAL' || appleIssuerId)) {
   appleClient = new AppleClient({
     keyId: appleKeyId,
     issuerId: appleIssuerId,
     p8Path: appleP8Path,
     keyType: appleKeyType,
+    reportsKey: appleReportsKey,
+    adminKey: appleAdminKey,
   });
 }
 
@@ -63,8 +87,15 @@ if (googleSaPath) {
   }
 }
 
+const readOnly = isReadOnlyMode();
+const enabled = <T extends { name: string }>(tools: T[]) => (readOnly ? tools.filter(tool => isReadTool(tool.name)) : tools);
+if (readOnly) {
+  const skipped = [...appleTools, ...googleTools].filter(tool => !isReadTool(tool.name)).length;
+  console.error(`app-publish-mcp: read-only mode, ${skipped} write tools are not registered`);
+}
+
 // ── Register Apple tools ──
-for (const tool of appleTools) {
+for (const tool of enabled(appleTools)) {
   server.tool(tool.name, tool.description, tool.schema.shape, async (args: any) => {
     if (!appleClient) {
       return {
@@ -82,7 +113,7 @@ for (const tool of appleTools) {
 }
 
 // ── Register Google tools ──
-for (const tool of googleTools) {
+for (const tool of enabled(googleTools)) {
   server.tool(tool.name, tool.description, tool.schema.shape, async (args: any) => {
     if (!googleClient) {
       return {
@@ -101,7 +132,8 @@ for (const tool of googleTools) {
 
 // ── Prompts ──
 
-server.prompt(
+// Release steps need write tools, so the checklist is not offered in read-only mode
+if (!readOnly) server.prompt(
   'app_release_checklist',
   'Guided checklist for releasing an app update on iOS and/or Android, from signed artifact upload through review and release status.',
   {
@@ -180,13 +212,15 @@ server.prompt(
               `6. Use apple_list_reviews with appId="${appId}" and sort="-createdDate" to get recent reviews`,
             ].join('\n') : [
               'Steps:',
-              `1. Use google_create_edit with packageName="${appId}" to start an edit session`,
+              readOnly
+                ? '1. Ask for an existing editId explicitly provided for this audit; do not create or delete edits in read-only mode. Without one, skip edit-scoped listing queries.'
+                : `1. Use an existing editId, or explicitly create an edit for ${appId}; creating one invalidates this user's earlier open edit`,
               `2. Use google_get_details to check app details (contact info, default language)`,
               `3. Use google_list_listings to get all localized store listings`,
               `4. For each listing language, use google_get_listing to get full title, short/full description`,
               `5. Use google_list_images for each language to check screenshots, feature graphic, icon`,
               `6. Use google_list_reviews with packageName="${appId}" to get recent reviews`,
-              '7. Use google_delete_edit to discard the edit session (read-only audit)',
+              readOnly ? '7. Leave the supplied edit unchanged; never discard it.' : '7. Discard only an audit edit you explicitly created, never another pending release edit.',
             ].join('\n'),
             '',
             'Analyze and report:',
@@ -224,15 +258,18 @@ server.resource(
         keyId: appleKeyId ? `${appleKeyId.slice(0, 4)}...` : null,
         issuerId: appleIssuerId ? `${appleIssuerId.slice(0, 8)}...` : null,
         keyType: appleKeyType,
+        reportsKeyId: appleReportsKey ? `${appleReportsKey.keyId.slice(0, 4)}...` : null,
+        adminKeyId: appleAdminKey ? `${appleAdminKey.keyId.slice(0, 4)}...` : null,
       },
       google: {
         connected: !!googleClient,
         authMethod: googleSaPath ? 'service_account' : (googleClientId ? 'oauth2' : (loadSavedGoogleToken() ? 'saved_token' : 'none')),
       },
       tools: {
-        apple: appleTools.length,
-        google: googleTools.length,
-        total: appleTools.length + googleTools.length,
+        apple: enabled(appleTools).length,
+        google: enabled(googleTools).length,
+        total: enabled(appleTools).length + enabled(googleTools).length,
+        readOnly,
       },
     };
 
@@ -260,12 +297,12 @@ server.resource(
       apple: {
         name: 'Apple App Store Connect',
         configured: !!appleClient,
-        tools: appleTools.map(t => ({ name: t.name, description: t.description })),
+        tools: enabled(appleTools).map(t => ({ name: t.name, description: t.description })),
       },
       google: {
         name: 'Google Play Console',
         configured: !!googleClient,
-        tools: googleTools.map(t => ({ name: t.name, description: t.description })),
+        tools: enabled(googleTools).map(t => ({ name: t.name, description: t.description })),
       },
     };
 

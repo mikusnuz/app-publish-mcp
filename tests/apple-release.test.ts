@@ -125,13 +125,14 @@ function createReviewFlowFixture(options: {
   };
 }
 
-test('apple_upload_build reserves, uploads, commits SHA-256, and waits for COMPLETE', async () => {
+test('apple_upload_build verifies SHA-256 locally, commits MD5, and waits for COMPLETE', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'app-publish-build-upload-'));
   try {
     const filePath = join(directory, 'Signed.IPA');
     const bytes = Buffer.from('signed-ipa-payload');
     writeFileSync(filePath, bytes);
     const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const md5 = createHash('md5').update(bytes).digest('hex');
     const calls: any[] = [];
     const client = {
       request: async (path: string, options?: any) => {
@@ -165,7 +166,7 @@ test('apple_upload_build reserves, uploads, commits SHA-256, and waits for COMPL
               id: 'file-1',
               attributes: {
                 assetDeliveryState: { state: 'UPLOAD_COMPLETE' },
-                sourceFileChecksums: { file: { hash: sha256, algorithm: 'SHA_256' } },
+                sourceFileChecksums: { file: { hash: md5, algorithm: 'MD5' } },
                 uploadOperations: [{ url: 'https://upload.example/presigned-secret' }],
               },
             },
@@ -222,7 +223,7 @@ test('apple_upload_build reserves, uploads, commits SHA-256, and waits for COMPL
     const commit = calls.find(call => call[1] === '/buildUploadFiles/file-1');
     assert.equal(commit[2].body.data.attributes.uploaded, true);
     assert.deepEqual(commit[2].body.data.attributes.sourceFileChecksums, {
-      file: { hash: sha256, algorithm: 'SHA_256' },
+      file: { hash: md5, algorithm: 'MD5' },
     });
     const status = calls.find(call => call[1] === '/buildUploads/upload-1');
     assert.deepEqual(status[2].params, {

@@ -42,7 +42,7 @@ test('llms tool inventory matches every registered Apple and Google tool', () =>
     .map(tool => tool.name)
     .sort();
 
-  assert.equal(registered.length, 147);
+  assert.equal(registered.length, 188);
   assert.deepEqual(documented, registered);
 });
 
@@ -789,8 +789,10 @@ test('OAuth helpers use loopback-only callbacks, random state, and private crede
       refreshToken: 'refresh-token',
       savedAt: '2026-08-28T00:00:00.000Z',
     }, tokenPath);
-    assert.equal(statSync(tokenPath).mode & 0o777, 0o600);
-    assert.equal(statSync(join(directory, 'credentials')).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(tokenPath).mode & 0o777, 0o600);
+      assert.equal(statSync(join(directory, 'credentials')).mode & 0o777, 0o700);
+    }
     assert.equal(JSON.parse(readFileSync(tokenPath, 'utf8')).refreshToken, 'refresh-token');
     assert.equal(loadSavedGoogleToken(tokenPath)?.clientId, 'client-id');
 

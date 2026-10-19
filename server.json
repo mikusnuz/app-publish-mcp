@@ -6,12 +6,12 @@
     "url": "https://github.com/mikusnuz/app-publish-mcp",
     "source": "github"
   },
-  "version": "0.6.0",
+  "version": "0.7.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "app-publish-mcp",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "transport": {
         "type": "stdio"
       },
@@ -71,6 +71,76 @@
           "isRequired": false,
           "format": "string",
           "isSecret": true
+        },
+        {
+          "name": "APPLE_VENDOR_NUMBER",
+          "description": "Apple vendor number for sales and finance reports",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "APP_PUBLISH_READ_ONLY",
+          "description": "Set to true to register only read tools (list/get/search/query/download, no Google edit creation or deletion)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "APPLE_REPORTS_KEY_ID",
+          "description": "Extra Apple key ID for Sales/Finance/Analytics reports",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "APPLE_REPORTS_P8_PATH",
+          "description": "Path to the reports key .p8 file",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "APPLE_ADMIN_KEY_ID",
+          "description": "Admin key ID for analytics requests and finance/reporting fallback",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "APPLE_ADMIN_P8_PATH",
+          "description": "Path to the Admin key .p8 file",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "APPLE_REPORTS_ISSUER_ID",
+          "description": "Reports key issuer; defaults to APPLE_ISSUER_ID",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "APPLE_REPORTS_KEY_TYPE",
+          "description": "Reports key type: TEAM or INDIVIDUAL; defaults to APPLE_KEY_TYPE",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "APPLE_ADMIN_ISSUER_ID",
+          "description": "Admin key issuer; defaults to APPLE_ISSUER_ID",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "APPLE_ADMIN_KEY_TYPE",
+          "description": "Admin key type: TEAM or INDIVIDUAL; defaults to APPLE_KEY_TYPE",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
         }
       ]
     }

@@ -28,7 +28,7 @@ Use this MCP when you need to:
 
 ## Features
 
-### Apple App Store Connect (98 tools)
+### Apple App Store Connect (135 tools)
 
 | Category | Tools |
 |----------|-------|
@@ -59,12 +59,17 @@ Use this MCP when you need to:
 | Price Points | `apple_get_subscription_price_points`, `apple_get_iap_price_points` |
 | Offer Codes | `apple_list_subscription_offer_codes`, `apple_get_subscription_offer_code`, `apple_create_subscription_offer_code`, `apple_list_iap_offer_codes`, `apple_get_iap_offer_code`, `apple_create_iap_offer_code` |
 | Win-Back Offers | `apple_list_win_back_offers`, `apple_get_win_back_offer` |
+| Custom Product Pages | `apple_list_custom_product_pages`, `apple_get_custom_product_page`, `apple_create_custom_product_page`, `apple_update_custom_product_page`, `apple_delete_custom_product_page`, `apple_list_custom_product_page_versions`, `apple_create_custom_product_page_version`, `apple_update_custom_product_page_version`, `apple_list_custom_product_page_localizations`, `apple_create_custom_product_page_localization`, `apple_update_custom_product_page_localization`, `apple_delete_custom_product_page_localization` |
+| Product Page Optimization | `apple_list_experiments`, `apple_get_experiment`, `apple_create_experiment`, `apple_update_experiment`, `apple_delete_experiment`, `apple_list_experiment_treatments`, `apple_create_experiment_treatment`, `apple_update_experiment_treatment`, `apple_delete_experiment_treatment`, `apple_list_treatment_localizations`, `apple_create_treatment_localization`, `apple_delete_treatment_localization` |
+| Sales & Finance Reports | `apple_get_sales_report`, `apple_get_finance_report` |
+| App Analytics Reports | `apple_list_analytics_report_requests`, `apple_create_analytics_report_request`, `apple_list_analytics_reports`, `apple_list_analytics_report_instances`, `apple_list_analytics_report_segments`, `apple_download_analytics_report` |
+| Review submission workflow | `apple_list_review_submissions`, `apple_get_review_submission`, `apple_create_review_submission`, `apple_add_review_submission_item`, `apple_submit_review_submission` |
 
 `apple_get_pricing` follows all manual and automatic price pages. `apple_set_price` submits the complete manual price schedule, so include every current or future manual entry that must remain; omitted entries may be removed from the schedule.
 
 Apple provisioning resources — Bundle IDs, capabilities, certificates, profiles, and devices — require a Team API key with suitable access. Individual API keys can be used for supported App Store Connect publishing operations, but not for those provisioning resources. TestFlight internal testers are members of your App Store Connect team, not Apple employees.
 
-### Google Play Console (49 tools)
+### Google Play Console (53 tools)
 | Category | Tools |
 |----------|-------|
 | Edit Lifecycle | `google_create_edit`, `google_get_edit`, `google_commit_edit`, `google_validate_edit`, `google_delete_edit` |
@@ -79,11 +84,14 @@ Apple provisioning resources — Bundle IDs, capabilities, certificates, profile
 | Reviews¹ | `google_list_reviews`, `google_get_review`, `google_reply_to_review` |
 | In-App Products | `google_list_iap`, `google_get_iap`, `google_create_iap`, `google_update_iap`, `google_delete_iap` |
 | Subscriptions | `google_list_subscriptions`, `google_get_subscription`, `google_create_subscription`, `google_activate_subscription_base_plan`, `google_deactivate_subscription_base_plan` |
+| Android Vitals³ | `google_query_vitals`, `google_list_vitals_anomalies`, `google_search_vitals_error_issues`, `google_search_vitals_error_reports` |
 | One-time Products² | `google_list_one_time_products`, `google_get_one_time_product`, `google_create_one_time_product`, `google_update_one_time_product`, `google_delete_one_time_product`, `google_activate_purchase_option`, `google_deactivate_purchase_option` |
 
-¹ If `google_list_reviews` returns an empty array for an app that has visible reviews in Play Console, first check that the linked service account has the **"Reply to reviews"** account permission (Play Console → Users and permissions) — the API does not raise a distinct error for a missing permission, it just returns no results. Also note the endpoint only surfaces recent reviews; use `pageToken` to page through more.
+¹ The [Reviews API](https://developers.google.com/android-publisher/reply-to-reviews) returns only production-app reviews with comments created or modified within the last 7 days. Ratings without comments and alpha/beta feedback are excluded. `pageToken` does not extend that window; export CSV from Play Console for older history. Check **Reply to reviews** permission when troubleshooting, but an empty result alone does not prove a permission problem.
 
 ² One-time Products (`monetization.onetimeproducts`) is Google Play's newer purchase model for buy/rent items, distinct from the older `inappproducts` API. Inspect each returned purchase-option state and use the dedicated activate/deactivate tools to change it.
+
+³ Vitals use the [Play Developer Reporting API](https://developers.google.com/play/developer/reporting). Enable it in the service account's Cloud project and grant the account **View app information** in Play Console. Saved OAuth tokens created before this scope was added need `app-publish-mcp auth google` again.
 
 ### Prompts (2)
 | Prompt | Description |
@@ -109,7 +117,7 @@ npm run build
 ### 2. Apple Credentials
 
 1. Go to [App Store Connect > Keys](https://appstoreconnect.apple.com/access/integrations/api)
-2. Create an API Key with **App Manager** role
+2. Create an API Key with **App Manager** role (reports need a second key, see [Keys and roles](#keys-and-roles))
 3. Download the `.p8` file
 4. Note the **Key ID** and, for team keys, the **Issuer ID**. For an individual key, set `APPLE_KEY_TYPE=INDIVIDUAL` and omit the issuer ID.
 5. Use a Team API key with suitable access for Bundle ID, certificate, profile, capability, or device tools.
@@ -142,6 +150,18 @@ APPLE_P8_PATH=/path/to/AuthKey.p8
 GOOGLE_SERVICE_ACCOUNT_PATH=/path/to/service-account.json
 ```
 
+Optional:
+```
+APPLE_VENDOR_NUMBER=YOUR_VENDOR_NUMBER   # sales and finance reports
+APPLE_REPORTS_KEY_ID=REPORTS_KEY_ID      # key for Sales/Finance/Analytics reports
+APPLE_REPORTS_P8_PATH=/path/to/AuthKey_REPORTS.p8
+APPLE_ADMIN_KEY_ID=ADMIN_KEY_ID          # analytics requests and finance/reporting fallback
+APPLE_ADMIN_P8_PATH=/path/to/AuthKey_ADMIN.p8
+APP_PUBLISH_READ_ONLY=true               # register only read tools (list/get/search/query/download, no Google edit creation or deletion)
+```
+
+See [Keys and roles](#keys-and-roles) for the extra keys and [Safety](#safety) for read-only mode.
+
 The server automatically loads `.env` from the package/project root. Environment variables supplied by the shell or MCP host take precedence. For OAuth variables, see `.env.example`.
 
 ### 5. Add to Claude Code
@@ -166,7 +186,96 @@ Add to `~/.claude/settings.local.json`:
 }
 ```
 
+## Keys and roles
+
+Apple decides what an API key may do by its role, so one key is often not enough. A key that can run the listing gets `403` on reports, and a reports key cannot change the listing.
+
+### Which Apple role does what
+
+| Job | Works with | Fails with |
+|-----|-----------|------------|
+| Listing, screenshots and visuals, custom product pages, A/B tests, versions, review submission, TestFlight, pricing | App Manager, Admin | Sales and Reports, Finance |
+| Bundle IDs, capabilities, certificates, profiles, devices | Team key with suitable access (Admin covers it) | Individual keys |
+| `apple_get_sales_report` | Sales and Reports, Finance, Admin | App Manager (`403`) |
+| `apple_get_finance_report` | Finance, Admin | Sales and Reports, App Manager (`403`) |
+| Reading App Analytics reports | Sales and Reports, Finance, Admin | App Manager (`403`) |
+| `apple_create_analytics_report_request` | Admin | Sales and Reports, App Manager (`403`) |
+
+Apple documents the analytics and sales rows in [Analytics Reports](https://developer.apple.com/documentation/analytics-reports). Check the key role and app access before using a report endpoint.
+
+### Several keys on one server
+
+Set the main key as usual and add optional keys. Each request picks its key by API; the server never retries a refused request with a stronger key.
+
+| Request | Key used |
+|---------|----------|
+| Everything except reports | Main key (`APPLE_KEY_ID`, `APPLE_P8_PATH`) |
+| Sales reports, reading analytics reports | `APPLE_REPORTS_*`, else `APPLE_ADMIN_*`, else the main key |
+| Finance reports | `APPLE_ADMIN_*`, else `APPLE_REPORTS_*`, else the main key |
+| Creating or deleting an analytics report request | `APPLE_ADMIN_*`, else the main key |
+
+`APPLE_REPORTS_ISSUER_ID`, `APPLE_ADMIN_ISSUER_ID` and the matching `*_KEY_TYPE` default to the main key's values. `apple_get_sales_report` and `apple_get_finance_report` also need `APPLE_VENDOR_NUMBER` (App Store Connect → Payments and Financial Reports).
+
+### Recipe: App Analytics without a permanent Admin key
+
+1. Main key: **App Manager**.
+2. Create a **Sales and Reports** key and set `APPLE_REPORTS_KEY_ID` / `APPLE_REPORTS_P8_PATH`.
+3. Create a temporary **Admin** key, set `APPLE_ADMIN_KEY_ID` / `APPLE_ADMIN_P8_PATH`, restart the server and call `apple_create_analytics_report_request` once per app (`ONGOING`).
+4. Revoke the Admin key in App Store Connect and remove the `APPLE_ADMIN_*` variables. The request keeps producing reports, and the Sales and Reports key reads them.
+
+Apple generates the first report instances a day or two later and keeps each instance for 35 days. Download them with `apple_list_analytics_reports` → `apple_list_analytics_report_instances` → `apple_download_analytics_report`.
+
+### Google
+
+One service account covers publishing and vitals. Enable the **Google Play Android Developer API** for publishing and the **Google Play Developer Reporting API** for vitals, and grant the account the needed app permissions in Play Console. Vitals need **View app information**.
+
+### Troubleshooting
+
+| Response | Usually means |
+|----------|---------------|
+| `401 NOT_AUTHORIZED` | Wrong Key ID, Issuer ID or `.p8`, or a revoked key. Tokens are issued 60 seconds in the past, to tolerate modest clock skew; keep the system clock synchronized. |
+| `403 FORBIDDEN_ERROR` "The API key in use does not allow this request" | The key's role cannot do this. Check the role table and add `APPLE_REPORTS_*` or `APPLE_ADMIN_*`. |
+| `404 NOT_FOUND` on sales or finance reports | No data for that date or region, e.g. a free app has no finance report. |
+| `400 PARAMETER_ERROR` on sales reports | Wrong vendor number, or a `reportSubType` / `version` that does not fit the `reportType`. |
+| Google vitals return no rows | Google has no vitals data for the app in that window, which is common for new or low-traffic apps. |
+
+## Safety
+
+Most tools change real store data. Know which ones before you let an assistant call them.
+
+**Reach users or start Apple review**
+- `apple_submit_for_review`, `apple_release_version`, `apple_create_phased_release` / `apple_update_phased_release`
+- `apple_update_experiment` with `started=true` starts a product page test that real visitors see
+- `google_commit_edit` publishes everything in the edit; `google_create_release`, `google_promote_release` and `google_halt_release` take effect on commit
+
+**Money and availability**
+- `apple_set_price` (replaces the whole manual price schedule), `apple_create_availability`, `apple_update_territory_availability`
+- Creating, changing, activating or deactivating in-app purchases, subscriptions, base plans, one-time products and offer codes
+
+**Public text**
+- `apple_respond_to_review` and `google_reply_to_review` post replies everyone can read
+
+**Cannot be undone**
+- Every `apple_delete_*` tool, `google_delete_listing`, `google_delete_all_images`, `google_delete_iap`, `google_delete_one_time_product`
+- `apple_revoke_certificate`: builds signed with that certificate stop installing
+
+**Recommendations**
+- Run a separate read-only server for monitoring and reports: `APP_PUBLISH_READ_ONLY=true`. It registers store-read tools, asset polling and Google edit validation. It excludes Google edit creation and deletion: creating a new edit can invalidate that user's existing release draft. For edit-scoped reads supply an existing editId explicitly; the server never creates or cleans it up in this mode. Any value except empty, `0`, `false`, `no` or `off` turns it on. Report tools that take `outputPath` still write that local file, never over an existing one unless `overwrite=true`.
+- Give each key the smallest role that does the job, and revoke temporary Admin keys after use.
+- On Google Play, change things inside an edit, check them with `google_validate_edit`, then commit; `google_delete_edit` discards the edit.
+- Keep your MCP client's tool approval on for write tools.
+
+**Tested against mocks only:** the write tools for custom product pages and product page optimization follow Apple's OpenAPI 4.5.1 schema and are covered by tests, but have not yet been run against a live account. Try them on a test app first.
+
 ## Usage Examples
+
+### Submit assets, custom pages or product page tests
+
+Use `apple_create_review_submission` to create a draft (or `apple_list_review_submissions` to find one), then `apple_add_review_submission_item` for an image/video, custom product page **version**, or v2 experiment. Inspect `apple_get_review_submission`, then pass its complete review item IDs to `apple_submit_review_submission`. Adding items does not submit them; only the last step starts App Review. An interrupted call preserves the submission ID for inspection/retry. Apple controls review eligibility: a first app release needs an app version in the submission; assets assigned to a submitted page/test/version are reviewed with that item. Existing `apple_submit_for_review` still handles app-version releases.
+
+Report downloads are limited to 32 MiB per response and 64 MiB of decompressed/merged text. Analytics segments are checked against Apple's MD5 when provided; signed URLs are never returned in failures. Saved reports use exclusive creation unless `overwrite=true`.
+
+Build uploads use a supported MD5 transfer checksum and retain the optional local `expectedSha256` artifact-integrity check. This does not imply that Apple's documented SHA-256 checksum algorithm is unsupported.
 
 ### Upload and arrange Apple screenshots or preview videos
 
@@ -178,6 +287,14 @@ Add to `~/.claude/settings.local.json`:
 6. `apple_delete_placement` removes a placement only. `apple_list_asset_placements` shows everywhere an asset is used; `apple_delete_asset` refuses to delete an asset still in use.
 
 Apple deprecated the legacy screenshot endpoints in [App Store Connect API 4.5.1](https://developer.apple.com/documentation/appstoreconnectapi/app-store-connect-api-4-5-1-release-notes). The four existing screenshot tools remain for compatibility; Apple has not announced their shutdown date. Use the [Asset Library workflow](https://developer.apple.com/documentation/appstoreconnectapi/migrating-to-the-app-asset-library) for new work. Korea age-rating overrides now also support `ALL` and `TWELVE_PLUS`.
+
+### Header and search visuals, custom product pages, A/B tests
+
+The App Store product page header and the search results visual are Asset Library placements (`PRODUCT_PAGE_HEADER_ASSET`, `APP_STORE_SEARCH_RESULTS_ASSET`). Pick the spec with `apple_get_asset_specs(placementType=...)`, upload with `apple_upload_asset`, then `apple_create_placement`. The same placements work on custom product page localizations (`apple_create_custom_product_page` → `apple_list_custom_product_page_localizations`) and on test treatments (`apple_create_experiment` → `apple_create_experiment_treatment` → `apple_create_treatment_localization`).
+
+### Store analytics
+
+`apple_create_analytics_report_request` asks Apple to start generating App Analytics reports; the first instances appear after 1–2 days. Then `apple_list_analytics_reports` → `apple_list_analytics_report_instances` → `apple_download_analytics_report` (pass `outputPath` to keep the full file). `apple_get_sales_report` returns daily units and proceeds. On Android, `google_query_vitals` returns crash/ANR rates for the latest 28 days by default.
 
 ### Submit an iOS app update
 

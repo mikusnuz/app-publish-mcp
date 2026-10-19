@@ -4,6 +4,9 @@ import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { AppleApiError, AppleClient } from './client.js';
 import { assetLibraryTools } from './asset-library.js';
+import { productPageTools } from './product-pages.js';
+import { reportTools } from './reports.js';
+import { reviewItemTools } from './review-items.js';
 
 // Helper to define a tool
 interface ToolDef {
@@ -91,12 +94,14 @@ async function getAllApplePages(
   };
 }
 
-async function getFileSha256(filePath: string): Promise<string> {
-  const hash = createHash('sha256');
+async function getFileChecksums(filePath: string): Promise<{ sha256: string; md5: string }> {
+  const sha256 = createHash('sha256');
+  const md5 = createHash('md5');
   for await (const chunk of createReadStream(filePath)) {
-    hash.update(chunk);
+    sha256.update(chunk);
+    md5.update(chunk);
   }
-  return hash.digest('hex');
+  return { sha256: sha256.digest('hex'), md5: md5.digest('hex') };
 }
 
 function errorDetail(error: unknown): string {
@@ -901,7 +906,7 @@ const waitForBuildUpload: ToolDef = {
 const uploadBuild: ToolDef = {
   name: 'apple_upload_build',
   description:
-    'Upload a signed IPA through the App Store Connect Build Uploads API: reserve the upload and file, send every presigned range, commit its SHA-256 checksum, and optionally wait for import',
+    'Upload a signed IPA through the App Store Connect Build Uploads API: verify its SHA-256 locally, reserve the upload and file, send every presigned range, commit its MD5 transfer checksum, and optionally wait for import',
   schema: z.object({
     appId: z.string().min(1).describe('App ID'),
     filePath: z.string().min(1).describe('Local path to a signed .ipa file'),
@@ -936,7 +941,7 @@ const uploadBuild: ToolDef = {
       );
     }
 
-    const sha256 = await getFileSha256(args.filePath);
+    const { sha256, md5 } = await getFileChecksums(args.filePath);
     if (
       args.expectedSha256 !== undefined
       && args.expectedSha256.toLowerCase() !== sha256
@@ -1042,8 +1047,10 @@ const uploadBuild: ToolDef = {
         attributes: {
           sourceFileChecksums: {
             file: {
-              hash: sha256,
-              algorithm: 'SHA_256',
+              // Use Apple's supported MD5 transfer checksum while retaining
+              // SHA-256 for local artifact verification.
+              hash: md5,
+              algorithm: 'MD5',
             },
           },
           uploaded: true,
@@ -3029,4 +3036,9 @@ export const appleTools: ToolDef[] = [
   listIAPOfferCodes, getIAPOfferCode, createIAPOfferCode,
   // Win-Back Offers
   listWinBackOffers, getWinBackOffer,
+  // Custom Product Pages & Product Page Optimization
+  ...productPageTools,
+  // Sales, Finance & App Analytics reports
+  ...reportTools,
+  ...reviewItemTools,
 ];

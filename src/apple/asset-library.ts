@@ -45,7 +45,7 @@ function publicResult(value: any): any {
     .map(([key, entry]) => [key, publicResult(entry)]));
 }
 
-async function allPages(client: AppleClient, path: string, params?: Record<string, string>) {
+export async function allPages(client: AppleClient, path: string, params?: Record<string, string>) {
   const result = await client.request(path, { params });
   const data = [...(result.data ?? [])];
   const included = [...(result.included ?? [])];
@@ -54,9 +54,9 @@ async function allPages(client: AppleClient, path: string, params?: Record<strin
   while (next) {
     const url = new URL(next);
     if (url.origin !== 'https://api.appstoreconnect.apple.com' || !/^\/v\d+\//.test(url.pathname)) {
-      throw new Error('Asset library pagination returned an invalid Apple API URL');
+      throw new Error('App Store Connect pagination returned an invalid Apple API URL');
     }
-    if (visited.has(next)) throw new Error('Asset library pagination repeated a next URL');
+    if (visited.has(next)) throw new Error('App Store Connect pagination repeated a next URL');
     visited.add(next);
     const page = await client.request(next);
     data.push(...(page.data ?? []));
